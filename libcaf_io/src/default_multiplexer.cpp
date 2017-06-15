@@ -276,7 +276,7 @@ namespace network {
         epollfd_(invalid_native_socket),
         shadow_(1),
         pipe_reader_(*this),
-        dgram_servant_ids(0) {
+        dgram_servant_ids_(0) {
     init();
     epollfd_ = epoll_create1(EPOLL_CLOEXEC);
     if (epollfd_ == -1) {
@@ -424,7 +424,8 @@ namespace network {
   default_multiplexer::default_multiplexer(actor_system* sys)
       : multiplexer(sys),
         epollfd_(-1),
-        pipe_reader_(*this) {
+        pipe_reader_(*this),
+        dgram_servant_ids_(0) {
     init();
     // initial setup
     pipe_ = create_pipe();
@@ -1612,7 +1613,7 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
   if (!p)
     return std::move(p.error());
   // result tuple
-  std::tuple<native_socket, ip_endpoint> info;
+  std::pair<native_socket, ip_endpoint> info;
   // create sockaddr_storage from host information
   // TODO: create new native_address func that returns a sockaddr_storage
   get<0>(info) = std::move(sguard.release());
