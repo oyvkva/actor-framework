@@ -262,6 +262,25 @@ test_multiplexer::new_dgram_servant_for_endpoint(native_socket, ip_endpoint&) {
   abort();
 }
 
+/*
+expected<scribe_ptr> test_multiplexer::new_tcp_scribe(const std::string& host,
+                                                      uint16_t port) {
+  CAF_LOG_TRACE(CAF_ARG(host) << CAF_ARG(port));
+  connection_handle hdl;
+  { // lifetime scope of guard
+    guard_type guard{mx_};
+    auto i = scribes_.find(std::make_pair(host, port));
+    if (i != scribes_.end()) {
+      hdl = i->second;
+      scribes_.erase(i);
+    } else {
+      return sec::cannot_connect_to_node;
+    }
+  }
+  return new_scribe(hdl);
+}
+*/
+
 expected<dgram_servant_ptr>
 test_multiplexer::new_remote_udp_endpoint(const std::string& host,
                                           uint16_t port) {
@@ -727,6 +746,13 @@ bool test_multiplexer::has_pending_scribe(std::string x, uint16_t y) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   guard_type guard{mx_};
   return scribes_.count(std::make_pair(std::move(x), y)) > 0;
+}
+
+bool test_multiplexer::has_pending_remote_endpoint(std::string x,
+                                                   uint16_t y) {
+  CAF_ASSERT(std::this_thread::get_id() == tid_);
+  guard_type guard{mx_};
+  return remote_endpoints_.count(std::make_pair(std::move(x), y)) > 0;
 }
 
 void test_multiplexer::accept_connection(accept_handle hdl) {

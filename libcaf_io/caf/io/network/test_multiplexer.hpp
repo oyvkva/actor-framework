@@ -225,6 +225,8 @@ public:
 
   bool has_pending_scribe(std::string x, uint16_t y);
 
+  bool has_pending_remote_endpoint(std::string x, uint16_t y);
+
   /// Accepts a pending connect on `hdl`.
   void accept_connection(accept_handle hdl);
 
