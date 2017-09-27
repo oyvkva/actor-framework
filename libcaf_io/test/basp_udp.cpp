@@ -397,8 +397,6 @@ public:
       CAF_CHECK_EQUAL(payload_len, hdr.payload_len);
       CAF_CHECK_EQUAL(operation_data, hdr.operation_data);
       CAF_CHECK_EQUAL(source_node, hdr.source_node);
-      std::cout << "dest_node: " << to_string(dest_node)
-                << " vs hdr.dest_node: " << to_string(hdr.dest_node) << std::endl;
       CAF_CHECK_EQUAL(dest_node, hdr.dest_node);
       CAF_CHECK_EQUAL(source_actor, hdr.source_actor);
       CAF_CHECK_EQUAL(dest_actor, hdr.dest_actor);
@@ -711,46 +709,6 @@ CAF_TEST(remote_actor_and_send_udp) {
   );
 }
 
-/*
-CAF_TEST(actor_serialize_and_deserialize) {
-  auto testee_impl = [](event_based_actor* testee_self) -> behavior {
-    testee_self->set_default_handler(reflect_and_quit);
-    return {
-      [] {
-        // nop
-      }
-    };
-  };
-  connect_node(jupiter());
-  auto prx = proxies().get_or_put(jupiter().id, jupiter().dummy_actor->id());
-  mock()
-  .receive(jupiter().connection,
-          basp::message_type::announce_proxy, no_flags, no_payload,
-          no_operation_data, this_node(), prx->node(),
-          invalid_actor_id, prx->id());
-  CAF_CHECK_EQUAL(prx->node(), jupiter().id);
-  CAF_CHECK_EQUAL(prx->id(), jupiter().dummy_actor->id());
-  auto testee = sys.spawn(testee_impl);
-  registry()->put(testee->id(), actor_cast<strong_actor_ptr>(testee));
-  CAF_MESSAGE("send message via BASP (from proxy)");
-  auto msg = make_message(actor_cast<actor_addr>(prx));
-  mock(jupiter().connection,
-       {basp::message_type::dispatch_message, 0, 0, 0,
-        prx->node(), this_node(),
-        prx->id(), testee->id()},
-       std::vector<actor_id>{},
-       msg);
-  // testee must've responded (process forwarded message in BASP broker)
-  CAF_MESSAGE("wait until BASP broker writes to its output buffer");
-  while (mpx()->output_buffer(jupiter().connection).empty())
-    mpx()->exec_runnable(); // process forwarded message in basp_broker
-  // output buffer must contain the reflected message
-  mock()
-  .receive(jupiter().connection,
-          basp::message_type::dispatch_message, no_flags, any_vals,
-          no_operation_data, this_node(), prx->node(), testee->id(), prx->id(),
-          std::vector<actor_id>{}, msg);
-}
 CAF_TEST(actor_serialize_and_deserialize_udp) {
   auto testee_impl = [](event_based_actor* testee_self) -> behavior {
     testee_self->set_default_handler(reflect_and_quit);
@@ -760,39 +718,40 @@ CAF_TEST(actor_serialize_and_deserialize_udp) {
       }
     };
   };
-  connect_node(jupiter());
+  establish_communication(jupiter());
   auto prx = proxies().get_or_put(jupiter().id, jupiter().dummy_actor->id());
   mock()
-  .expect(jupiter().connection,
+  .receive(jupiter().endpoint,
           basp::message_type::announce_proxy, no_flags, no_payload,
           no_operation_data, this_node(), prx->node(),
           invalid_actor_id, prx->id());
   CAF_CHECK_EQUAL(prx->node(), jupiter().id);
   CAF_CHECK_EQUAL(prx->id(), jupiter().dummy_actor->id());
-  auto testee = system.spawn(testee_impl);
+  auto testee = sys.spawn(testee_impl);
   registry()->put(testee->id(), actor_cast<strong_actor_ptr>(testee));
   CAF_MESSAGE("send message via BASP (from proxy)");
   auto msg = make_message(actor_cast<actor_addr>(prx));
-  mock(jupiter().connection,
+  mock(endpoint_handle(), jupiter().endpoint.id(),
        {basp::message_type::dispatch_message, 0, 0, 0,
         prx->node(), this_node(),
-        prx->id(), testee->id(), 1},
+        prx->id(), testee->id(),
+        1}, // sequence number, first message after handshake
        std::vector<actor_id>{},
        msg);
   // testee must've responded (process forwarded message in BASP broker)
   CAF_MESSAGE("wait until BASP broker writes to its output buffer");
-  while (mpx()->output_queue(jupiter().connection).empty())
+  while (mpx()->output_queue(jupiter().endpoint).empty())
     mpx()->exec_runnable(); // process forwarded message in basp_broker
   // output buffer must contain the reflected message
   mock()
-  .expect(jupiter().connection,
+  .receive(jupiter().endpoint,
           basp::message_type::dispatch_message, no_flags, any_vals,
           no_operation_data, this_node(), prx->node(), testee->id(), prx->id(),
           std::vector<actor_id>{}, msg);
 }
 
-
-CAF_TEST(indirect_connections) {
+/*
+CAF_TEST(indirect_connections_udp) {
   // this node receives a message from jupiter via mars and responds via mars
   // and any ad-hoc automatic connection requests are ignored
   CAF_MESSAGE("self: " << to_string(self()->address()));
@@ -842,6 +801,7 @@ CAF_TEST(indirect_connections) {
            make_message("hello from earth!"));
 }
 
+/*
 CAF_TEST(out_of_order_delivery_udp) {
   constexpr const char* prot = "udp";
   constexpr const char* lo = "localhost";
