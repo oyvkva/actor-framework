@@ -296,7 +296,10 @@ test_multiplexer::new_remote_udp_endpoint(const std::string& host,
       return sec::cannot_connect_to_node;
     }
   }
-  return new_dgram_servant(hdl, port);
+  auto ptr = new_dgram_servant(hdl, port);
+  // Set state in the struct to enable direct communication?
+  ptr->add_endpoint();
+  return ptr;
 }
 
 expected<dgram_servant_ptr>
@@ -430,8 +433,8 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     }
     void add_endpoint() override {
       // adapt endpoint from parent
-      // TODO: should this be more explicit,
-      // i.e., passing adapted parameters into the function?
+      // TODO: should this be more explicit?
+      // i.e., passing adapted parameters into the function
       { // lifetime scope of guard
         guard_type guard{mpx_->mx_};
         data_.servants[hdl().id()] = this;

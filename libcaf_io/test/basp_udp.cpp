@@ -397,10 +397,11 @@ public:
       CAF_CHECK_EQUAL(payload_len, hdr.payload_len);
       CAF_CHECK_EQUAL(operation_data, hdr.operation_data);
       CAF_CHECK_EQUAL(source_node, hdr.source_node);
+      std::cout << "dest_node: " << to_string(dest_node)
+                << " vs hdr.dest_node: " << to_string(hdr.dest_node) << std::endl;
       CAF_CHECK_EQUAL(dest_node, hdr.dest_node);
       CAF_CHECK_EQUAL(source_actor, hdr.source_actor);
       CAF_CHECK_EQUAL(dest_actor, hdr.dest_actor);
-      CAF_MESSAGE("buf size: " << buf.size() << " vs. payload size: " << payload.size());
       CAF_REQUIRE_EQUAL(buf.size(), payload.size());
       CAF_REQUIRE_EQUAL(hexstr(buf), hexstr(payload));
       ++num;
@@ -628,28 +629,29 @@ CAF_TEST(remote_actor_and_send_udp) {
   CAF_REQUIRE(mpx()->has_pending_remote_endpoint(lo, 4242));
   auto mm1 = sys.middleman().actor_handle();
   actor result;
-  auto f = self()->request(mm1, infinite,
-                           contact_atom::value, lo, uint16_t{4242});
+  auto f = self()->request(mm1, infinite, contact_atom::value,
+                           lo, uint16_t{4242});
   // wait until BASP broker has received and processed the connect message
   while (!aut()->valid(jupiter().endpoint))
     mpx()->exec_runnable();
   CAF_REQUIRE(!mpx()->has_pending_scribe(lo, 4242));
   // build a fake server handshake containing the id of our first pseudo actor
-   CAF_MESSAGE("server handshake => client handshake + proxy announcement");
-   auto na = registry()->named_actors();
-   // TODO: seqence numbers missing
-   mock(jupiter().endpoint, 4242, // endpoint probably wrong
-        {basp::message_type::server_handshake, 0, 0, basp::version,
-         jupiter().id, none,
-         jupiter().dummy_actor->id(), invalid_actor_id},
-        std::string{},
-        jupiter().dummy_actor->id(),
-        uint32_t{0})
-   .receive(jupiter().endpoint,
+  CAF_MESSAGE("client handshake => server handshake => proxy announcement");
+  auto na = registry()->named_actors();
+  mock()
+  .receive(jupiter().endpoint,
            basp::message_type::client_handshake, no_flags, 1u,
-           no_operation_data, this_node(), jupiter().id,
-           invalid_actor_id, invalid_actor_id, std::string{})
-   .receive(jupiter().endpoint,
+           no_operation_data, this_node(), node_id(),
+           invalid_actor_id, invalid_actor_id, std::string{});
+  mock(jupiter().endpoint, 2, // TODO: Shouldn't this be 4242?
+       {basp::message_type::server_handshake, 0, 0, basp::version,
+        jupiter().id, none,
+        jupiter().dummy_actor->id(), invalid_actor_id,
+        0}, // sequence number, first message
+       std::string{},
+       jupiter().dummy_actor->id(),
+       uint32_t{0})
+  .receive(jupiter().endpoint,
            basp::message_type::dispatch_message,
            basp::header::named_receiver_flag, any_vals,
            no_operation_data, this_node(), jupiter().id,
@@ -657,102 +659,10 @@ CAF_TEST(remote_actor_and_send_udp) {
            spawn_serv_atom,
            std::vector<actor_id>{},
            make_message(sys_atom::value, get_atom::value, "info"))
-   .receive(jupiter().endpoint,
+  .receive(jupiter().endpoint,
            basp::message_type::announce_proxy, no_flags, no_payload,
            no_operation_data, this_node(), jupiter().id,
            invalid_actor_id, jupiter().dummy_actor->id());
-   CAF_MESSAGE("BASP broker should've send the proxy");
-   f.receive(
-     [&](node_id nid, strong_actor_ptr res, std::set<std::string> ifs) {
-       CAF_REQUIRE(res);
-       auto aptr = actor_cast<abstract_actor*>(res);
-       CAF_REQUIRE(dynamic_cast<forwarding_actor_proxy*>(aptr) != nullptr);
-       CAF_CHECK_EQUAL(proxies().count_proxies(jupiter().id), 1u);
-       CAF_CHECK_EQUAL(nid, jupiter().id);
-       CAF_CHECK_EQUAL(res->node(), jupiter().id);
-       CAF_CHECK_EQUAL(res->id(), jupiter().dummy_actor->id());
-       CAF_CHECK(ifs.empty());
-       auto proxy = proxies().get(jupiter().id, jupiter().dummy_actor->id());
-       CAF_REQUIRE(proxy != nullptr);
-       CAF_REQUIRE(proxy == res);
-       result = actor_cast<actor>(res);
-     },
-     [&](error& err) {
-       CAF_FAIL("error: " << sys.render(err));
-     }
-   );
-   CAF_MESSAGE("send message to proxy");
-   anon_send(actor_cast<actor>(result), 42);
-   mpx()->flush_runnables();
- //  mpx()->exec_runnable(); // process forwarded message in basp_broker
-   mock()
-   .receive(jupiter().endpoint,
-           basp::message_type::dispatch_message, no_flags, any_vals,
-           no_operation_data, this_node(), jupiter().id,
-           invalid_actor_id, jupiter().dummy_actor->id(),
-           std::vector<actor_id>{},
-           make_message(42));
-   auto msg = make_message("hi there!");
-   CAF_MESSAGE("send message via BASP (from proxy)");
-   mock(jupiter().endpoint, 1, // endpoint probably wrong
-        {basp::message_type::dispatch_message, 0, 0, 0,
-         jupiter().id, this_node(),
-         jupiter().dummy_actor->id(), self()->id()},
-        std::vector<actor_id>{},
-        make_message("hi there!"));
-   self()->receive(
-     [&](const string& str) {
-       CAF_CHECK_EQUAL(to_string(self()->current_sender()), to_string(result));
-       CAF_CHECK_EQUAL(self()->current_sender(), result.address());
-       CAF_CHECK_EQUAL(str, "hi there!");
-     }
-   );
-}
-/*
-CAF_TEST(remote_actor_and_send_udp) {
-  constexpr const char* prot = "udp";
-  constexpr const char* lo = "localhost";
-  constexpr uint16_t port = 4242;
-  auto u = uri::make(std::string(prot) + "://" + std::string(lo) + ":" +
-                     std::to_string(port));
-  CAF_REQUIRE(u);
-  CAF_MESSAGE("self: " << to_string(self()->address()));
-  mpx()->provide_dgram_scribe(lo, 4242, jupiter().connection);
-  CAF_REQUIRE(mpx()->has_pending_dgram_scribe(lo, 4242));
-  auto mm1 = system.middleman().actor_handle();
-  actor result;
-  auto f = self()->request(mm1, infinite, connect_atom::value, *u);
-  // wait until BASP broker has received and processed the connect message
-  while (!aut()->valid(jupiter().connection))
-    mpx()->exec_runnable();
-  CAF_REQUIRE(!mpx()->has_pending_dgram_scribe(lo, 4242));
-  // build a fake server handshake containing the id of our first pseudo actor
-  CAF_MESSAGE("server handshake => client handshake + proxy announcement");
-  auto na = registry()->named_actors();
-  // TODO: this should be the other way around client --> server
-  mock(jupiter().connection,
-       {basp::message_type::server_handshake, 0, 0, basp::version,
-        jupiter().id, none,
-        jupiter().dummy_actor->id(), invalid_actor_id},
-       std::string{},
-       jupiter().dummy_actor->id(),
-       uint32_t{0})
-  .expect(jupiter().connection,
-          basp::message_type::client_handshake, no_flags, 1u,
-          no_operation_data, this_node(), node_id{none},
-          invalid_actor_id, invalid_actor_id, std::string{})
-  .expect(jupiter().connection,
-          basp::message_type::dispatch_message,
-          basp::header::named_receiver_flag, any_vals,
-          no_operation_data, this_node(), jupiter().id,
-          any_vals, invalid_actor_id,
-          spawn_serv_atom,
-          std::vector<actor_id>{},
-          make_message(sys_atom::value, get_atom::value, "info"))
-  .expect(jupiter().connection,
-          basp::message_type::announce_proxy, no_flags, no_payload,
-          no_operation_data, this_node(), jupiter().id,
-          invalid_actor_id, jupiter().dummy_actor->id());
   CAF_MESSAGE("BASP broker should've send the proxy");
   f.receive(
     [&](node_id nid, strong_actor_ptr res, std::set<std::string> ifs) {
@@ -770,26 +680,26 @@ CAF_TEST(remote_actor_and_send_udp) {
       result = actor_cast<actor>(res);
     },
     [&](error& err) {
-      CAF_FAIL("error: " << system.render(err));
+      CAF_FAIL("error: " << sys.render(err));
     }
   );
   CAF_MESSAGE("send message to proxy");
   anon_send(actor_cast<actor>(result), 42);
   mpx()->flush_runnables();
-//  mpx()->exec_runnable(); // process forwarded message in basp_broker
   mock()
-  .expect(jupiter().connection,
-          basp::message_type::dispatch_message, no_flags, any_vals,
-          no_operation_data, this_node(), jupiter().id,
-          invalid_actor_id, jupiter().dummy_actor->id(),
-          std::vector<actor_id>{},
-          make_message(42));
+  .receive(jupiter().endpoint,
+           basp::message_type::dispatch_message, no_flags, any_vals,
+           no_operation_data, this_node(), jupiter().id,
+           invalid_actor_id, jupiter().dummy_actor->id(),
+           std::vector<actor_id>{},
+           make_message(42));
   auto msg = make_message("hi there!");
   CAF_MESSAGE("send message via BASP (from proxy)");
-  mock(jupiter().connection,
+  mock(jupiter().endpoint, 2, // TODO: Shouldn't this be 4242?
        {basp::message_type::dispatch_message, 0, 0, 0,
         jupiter().id, this_node(),
-        jupiter().dummy_actor->id(), self()->id(), 1},
+        jupiter().dummy_actor->id(), self()->id(),
+        1}, // sequence number, second message
        std::vector<actor_id>{},
        make_message("hi there!"));
   self()->receive(
@@ -801,7 +711,7 @@ CAF_TEST(remote_actor_and_send_udp) {
   );
 }
 
-
+/*
 CAF_TEST(actor_serialize_and_deserialize) {
   auto testee_impl = [](event_based_actor* testee_self) -> behavior {
     testee_self->set_default_handler(reflect_and_quit);
