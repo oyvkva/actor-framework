@@ -750,28 +750,28 @@ CAF_TEST(actor_serialize_and_deserialize_udp) {
           std::vector<actor_id>{}, msg);
 }
 
-/*
 CAF_TEST(indirect_connections_udp) {
   // this node receives a message from jupiter via mars and responds via mars
   // and any ad-hoc automatic connection requests are ignored
   CAF_MESSAGE("self: " << to_string(self()->address()));
   CAF_MESSAGE("publish self at port 4242");
-  auto ax = accept_handle::from_int(4242);
-  mpx()->provide_acceptor(4242, ax);
-  sys.middleman().publish(self(), 4242);
+  auto dx = dgram_handle::from_int(4242);
+  mpx()->provide_dgram_servant(4242, dx);
+  sys.middleman().publish_udp(self(), 4242);
   mpx()->flush_runnables(); // process publish message in basp_broker
   CAF_MESSAGE("connect to Mars");
-  connect_node(mars(), ax, self()->id());
+  establish_communication(mars(), dx, self()->id());
   CAF_MESSAGE("actor from Jupiter sends a message to us via Mars");
-  auto mx = mock(mars().connection,
+  auto mx = mock(dx, mars().endpoint.id(),
                  {basp::message_type::dispatch_message, 0, 0, 0,
                   jupiter().id, this_node(),
-                  jupiter().dummy_actor->id(), self()->id()},
+                  jupiter().dummy_actor->id(), self()->id(),
+                  1}, // sequence number
                  std::vector<actor_id>{},
                  make_message("hello from jupiter!"));
   CAF_MESSAGE("expect ('sys', 'get', \"info\") from Earth to Jupiter at Mars");
   // this asks Jupiter if it has a 'SpawnServ'
-  mx.receive(mars().connection,
+  mx.receive(mars().endpoint,
              basp::message_type::dispatch_message,
              basp::header::named_receiver_flag, any_vals,
              no_operation_data, this_node(), jupiter().id,
@@ -780,7 +780,7 @@ CAF_TEST(indirect_connections_udp) {
              std::vector<actor_id>{},
              make_message(sys_atom::value, get_atom::value, "info"));
   CAF_MESSAGE("expect announce_proxy message at Mars from Earth to Jupiter");
-  mx.receive(mars().connection,
+  mx.receive(mars().endpoint,
              basp::message_type::announce_proxy, no_flags, no_payload,
              no_operation_data, this_node(), jupiter().id,
              invalid_actor_id, jupiter().dummy_actor->id());
@@ -793,7 +793,7 @@ CAF_TEST(indirect_connections_udp) {
   );
   mpx()->exec_runnable(); // process forwarded message in basp_broker
   mock()
-  .receive(mars().connection,
+  .receive(mars().endpoint,
            basp::message_type::dispatch_message, no_flags, any_vals,
            no_operation_data, this_node(), jupiter().id,
            self()->id(), jupiter().dummy_actor->id(),
