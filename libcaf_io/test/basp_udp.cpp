@@ -405,6 +405,36 @@ public:
       ++num;
       return *this;
     }
+    
+    template <class... Ts>
+    mock_t& enqueue_back(dgram_handle hdl, int64_t id, basp::header hdr,
+                         const Ts&... xs) {
+      buffer buf;
+      this_->to_buf(buf, hdr, nullptr, xs...);
+      CAF_MESSAGE("adding msg " << to_string(hdr.operation)
+                  << " with " << (buf.size() - basp::header_size)
+                  << " bytes payload to back of queue");
+      this_->mpx()->virtual_network_buffer(hdl).emplace_back(id, buf);
+      return *this;
+    }
+
+    template <class... Ts>
+    mock_t& enqueue_front(dgram_handle hdl, int64_t id, basp::header hdr,
+                          const Ts&... xs) {
+      buffer buf;
+      this_->to_buf(buf, hdr, nullptr, xs...);
+      CAF_MESSAGE("adding msg " << to_string(hdr.operation)
+                  << " with " << (buf.size() - basp::header_size)
+                  << " bytes payload to front of queue");
+      this_->mpx()->virtual_network_buffer(hdl).emplace_front(id, buf);
+      return *this;
+    }
+
+    mock_t& deliver(dgram_handle hdl, size_t num_messages = 1) {
+      for (size_t i = 0; i < num_messages; ++i)
+        this_->mpx()->read_data(hdl);
+      return *this;
+    }
 
   private:
     fixture* this_;
@@ -754,7 +784,6 @@ CAF_TEST(indirect_connections_udp) {
   // this node receives a message from jupiter via mars and responds via mars
   // and any ad-hoc automatic connection requests are ignored
   CAF_MESSAGE("self: " << to_string(self()->address()));
-  CAF_MESSAGE("publish self at port 4242");
   auto dx = dgram_handle::from_int(4242);
   mpx()->provide_dgram_servant(4242, dx);
   sys.middleman().publish_udp(self(), 4242);
@@ -801,50 +830,47 @@ CAF_TEST(indirect_connections_udp) {
            make_message("hello from earth!"));
 }
 
-/*
 CAF_TEST(out_of_order_delivery_udp) {
-  constexpr const char* prot = "udp";
-  constexpr const char* lo = "localhost";
-  constexpr uint16_t port = 4242;
-  auto u = uri::make(std::string(prot) + "://" + std::string(lo) + ":" +
-                     std::to_string(port));
-  CAF_REQUIRE(u);
+   constexpr const char* lo = "localhost";
   CAF_MESSAGE("self: " << to_string(self()->address()));
-  mpx()->provide_dgram_scribe(lo, 4242, jupiter().connection);
-  CAF_REQUIRE(mpx()->has_pending_dgram_scribe(lo, 4242));
-  auto mm1 = system.middleman().actor_handle();
+  mpx()->provide_dgram_servant(lo, 4242, jupiter().endpoint);
+  CAF_REQUIRE(mpx()->has_pending_remote_endpoint(lo, 4242));
+  auto mm1 = sys.middleman().actor_handle();
   actor result;
-  auto f = self()->request(mm1, infinite, connect_atom::value, *u);
+  auto f = self()->request(mm1, infinite, contact_atom::value,
+                           lo, uint16_t{4242});
   // wait until BASP broker has received and processed the connect message
-  while (!aut()->valid(jupiter().connection))
+  while (!aut()->valid(jupiter().endpoint))
     mpx()->exec_runnable();
-  CAF_REQUIRE(!mpx()->has_pending_dgram_scribe(lo, 4242));
+  CAF_REQUIRE(!mpx()->has_pending_scribe(lo, 4242));
   // build a fake server handshake containing the id of our first pseudo actor
-  CAF_MESSAGE("server handshake => client handshake + proxy announcement");
+  CAF_MESSAGE("client handshake => server handshake => proxy announcement");
   auto na = registry()->named_actors();
-  mock(jupiter().connection,
+  mock()
+  .receive(jupiter().endpoint,
+           basp::message_type::client_handshake, no_flags, 1u,
+           no_operation_data, this_node(), node_id(),
+           invalid_actor_id, invalid_actor_id, std::string{});
+  mock(jupiter().endpoint, 2, // TODO: Shouldn't this be 4242?
        {basp::message_type::server_handshake, 0, 0, basp::version,
         jupiter().id, none,
-        jupiter().dummy_actor->id(), invalid_actor_id},
+        jupiter().dummy_actor->id(), invalid_actor_id,
+        0}, // sequence number, first message
        std::string{},
        jupiter().dummy_actor->id(),
        uint32_t{0})
-  .expect(jupiter().connection,
-          basp::message_type::client_handshake, no_flags, 1u,
-          no_operation_data, this_node(), node_id{none},
-          invalid_actor_id, invalid_actor_id, std::string{})
-  .expect(jupiter().connection,
-          basp::message_type::dispatch_message,
-          basp::header::named_receiver_flag, any_vals,
-          no_operation_data, this_node(), jupiter().id,
-          any_vals, invalid_actor_id,
-          spawn_serv_atom,
-          std::vector<actor_id>{},
-          make_message(sys_atom::value, get_atom::value, "info"))
-  .expect(jupiter().connection,
-          basp::message_type::announce_proxy, no_flags, no_payload,
-          no_operation_data, this_node(), jupiter().id,
-          invalid_actor_id, jupiter().dummy_actor->id());
+  .receive(jupiter().endpoint,
+           basp::message_type::dispatch_message,
+           basp::header::named_receiver_flag, any_vals,
+           no_operation_data, this_node(), jupiter().id,
+           any_vals, invalid_actor_id,
+           spawn_serv_atom,
+           std::vector<actor_id>{},
+           make_message(sys_atom::value, get_atom::value, "info"))
+  .receive(jupiter().endpoint,
+           basp::message_type::announce_proxy, no_flags, no_payload,
+           no_operation_data, this_node(), jupiter().id,
+           invalid_actor_id, jupiter().dummy_actor->id());
   CAF_MESSAGE("BASP broker should've send the proxy");
   f.receive(
     [&](node_id nid, strong_actor_ptr res, std::set<std::string> ifs) {
@@ -862,19 +888,19 @@ CAF_TEST(out_of_order_delivery_udp) {
       result = actor_cast<actor>(res);
     },
     [&](error& err) {
-      CAF_FAIL("error: " << system.render(err));
+      CAF_FAIL("error: " << sys.render(err));
     }
   );
   CAF_MESSAGE("send message to proxy");
   anon_send(actor_cast<actor>(result), 42);
   mpx()->flush_runnables();
   mock()
-  .expect(jupiter().connection,
-          basp::message_type::dispatch_message, no_flags, any_vals,
-          no_operation_data, this_node(), jupiter().id,
-          invalid_actor_id, jupiter().dummy_actor->id(),
-          std::vector<actor_id>{},
-          make_message(42));
+  .receive(jupiter().endpoint,
+           basp::message_type::dispatch_message, no_flags, any_vals,
+           no_operation_data, this_node(), jupiter().id,
+           invalid_actor_id, jupiter().dummy_actor->id(),
+           std::vector<actor_id>{},
+           make_message(42));
   // auto msg = make_message("hi there!");
   uint16_t seq_number = 1;
   auto next_hdr = [&]() -> basp::header {
@@ -884,27 +910,27 @@ CAF_TEST(out_of_order_delivery_udp) {
             seq_number++};
   };
   mock()
-  .enqueue_back(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(0))
-  .enqueue_back(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(1))
-  .enqueue_front(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(2))
-  .enqueue_back(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(3))
-  .enqueue_back(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(4))
-  .enqueue_back(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(5))
-  .enqueue_front(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(6))
-  .enqueue_back(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(7))
-  .enqueue_back(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(8))
-  .enqueue_front(jupiter().connection, next_hdr(), std::vector<actor_id>{},
-           make_message(9))
-  .deliver(jupiter().connection, 10);
+  .enqueue_back(jupiter().endpoint, 2, next_hdr(),
+                std::vector<actor_id>{}, make_message(0))
+  .enqueue_back(jupiter().endpoint, 2, next_hdr(),
+                std::vector<actor_id>{}, make_message(1))
+  .enqueue_front(jupiter().endpoint, 2, next_hdr(),
+                 std::vector<actor_id>{}, make_message(2))
+  .enqueue_back(jupiter().endpoint, 2, next_hdr(),
+                std::vector<actor_id>{}, make_message(3))
+  .enqueue_back(jupiter().endpoint, 2, next_hdr(),
+                std::vector<actor_id>{}, make_message(4))
+  .enqueue_back(jupiter().endpoint, 2, next_hdr(),
+                std::vector<actor_id>{}, make_message(5))
+  .enqueue_front(jupiter().endpoint, 2, next_hdr(),
+                 std::vector<actor_id>{}, make_message(6))
+  .enqueue_back(jupiter().endpoint, 2, next_hdr(),
+                std::vector<actor_id>{}, make_message(7))
+  .enqueue_back(jupiter().endpoint, 2, next_hdr(),
+                std::vector<actor_id>{}, make_message(8))
+  .enqueue_front(jupiter().endpoint, 2, next_hdr(),
+                 std::vector<actor_id>{}, make_message(9))
+  .deliver(jupiter().endpoint, 10);
   int expected_next = 0;
   self()->receive_while([&] { return expected_next < 9; }) (
     [&](int val) {
@@ -918,6 +944,8 @@ CAF_TEST(out_of_order_delivery_udp) {
 
 CAF_TEST_FIXTURE_SCOPE_END()
 
+
+/*
 CAF_TEST_FIXTURE_SCOPE(basp_tests_with_autoconn, autoconn_enabled_fixture)
 
 CAF_TEST(automatic_connection) {
@@ -1033,5 +1061,6 @@ CAF_TEST(automatic_connection) {
           make_message("hello from earth!"));
   CAF_CHECK_EQUAL(mpx()->output_buffer(mars().connection).size(), 0u);
 }
-*/
+
 CAF_TEST_FIXTURE_SCOPE_END()
+*/
