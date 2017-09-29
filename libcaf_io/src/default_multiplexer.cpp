@@ -971,6 +971,11 @@ default_multiplexer::new_dgram_servant_for_endpoint(native_socket fd,
                                                     ip_endpoint& ep) {
   CAF_LOG_TRACE(CAF_ARG(ep));
   auto ds = new_dgram_servant(fd);
+  // TODO: access the event handler pass it the ip_endpoint instead?
+  // and then call add_endpoint() without arguments to ...
+  // Maybe, this should be a function of the event_handler, like
+  // handler->add_servant_for_ednpoint(ds, ep)
+  // and remove the add_endpoint call from the servant
   ds->add_endpoint(ep);
   return ds;
 };
