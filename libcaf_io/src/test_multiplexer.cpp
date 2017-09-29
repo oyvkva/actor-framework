@@ -338,10 +338,10 @@ test_multiplexer::new_local_udp_endpoint(uint16_t desired_port,
 
 dgram_servant_ptr
 test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
-                                              dgram_servant_data& data) {
+                                              dgram_data_ptr data) {
   class impl : public dgram_servant {
   public:
-    impl(dgram_handle dh, dgram_servant_data& data, test_multiplexer* mpx)
+    impl(dgram_handle dh, dgram_data_ptr data, test_multiplexer* mpx)
       : dgram_servant(dh), mpx_(mpx), data_(data) {
       // nop
     }
@@ -437,21 +437,21 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       // i.e., passing adapted parameters into the function
       { // lifetime scope of guard
         guard_type guard{mpx_->mx_};
-        data_.servants[hdl().id()] = this;
-        mpx_->local_port(hdl()) = data_.local_port;
+        data_->servants[hdl().id()] = this;
+        mpx_->local_port(hdl()) = data_->local_port;
       }
     }
     void remove_endpoint() override {
       { // lifetime scope of guard
         guard_type guard{mpx_->mx_};
-        auto itr = data_.servants.find(hdl().id());
-        if (itr != data_.servants.end())
-          data_.servants.erase(itr);
+        auto itr = data_->servants.find(hdl().id());
+        if (itr != data_->servants.end())
+          data_->servants.erase(itr);
       }
     }
   private:
     test_multiplexer* mpx_;
-    dgram_servant_data& data_;
+    dgram_data_ptr data_;
   };
   auto dptr = make_counted<impl>(hdl, data, this);
   // { // lifetime scope of guard
@@ -460,6 +460,7 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
   //   // impl_ptr(hdl) = dptr;
   // }
   CAF_LOG_INFO("new datagram servant" << hdl);
+  dgram_data_[hdl] = data;
   return dptr;
 }
 
@@ -467,13 +468,17 @@ dgram_servant_ptr test_multiplexer::new_dgram_servant(dgram_handle hdl,
                                                       uint16_t port) {
   CAF_LOG_TRACE(CAF_ARG(hdl));
   // TODO: Does there have to be a scoped guard around this somehow?
-  dgram_servant_data& data = dgram_data_[hdl];
+  auto data = dgram_data_[hdl];
+  if (!data) {
+    data = std::make_shared<dgram_servant_data>();
+    dgram_data_[hdl] = data;
+  }
   auto dptr = new_dgram_servant_with_data(hdl, data);
   { // lifetime scope of guard
     guard_type guard{mx_};
-    data.ptr = dptr;
-    data.port = port;
-    data.ptr = dptr;
+    data->ptr = dptr;
+    data->port = port;
+    data->ptr = dptr;
   }
   return dptr;
 }
@@ -494,7 +499,7 @@ bool test_multiplexer::is_known_port(uint16_t x) const {
     return x == y.second.port;
   };
   auto pred2 = [&](const dgram_data_map::value_type& y) {
-    return x == y.second.port;
+    return x == y.second->port;
   };
   return (doormen_.count(x) + local_endpoints_.count(x)) > 0
          || std::any_of(doorman_data_.begin(), doorman_data_.end(), pred1)
@@ -559,7 +564,12 @@ void test_multiplexer::provide_dgram_servant(uint16_t desired_port,
   CAF_LOG_TRACE(CAF_ARG(desired_port) << CAF_ARG(hdl));
   guard_type guard{mx_};
   local_endpoints_.emplace(desired_port, hdl);
-  dgram_data_[hdl].local_port = desired_port;
+  auto data = dgram_data_[hdl];
+  if (!data) {
+   data = std::make_shared<dgram_servant_data>();
+   dgram_data_[hdl] = data;
+  }
+  data->local_port = desired_port;
 }
 
 void test_multiplexer::provide_dgram_servant(std::string host,
@@ -582,7 +592,7 @@ test_multiplexer::virtual_network_buffer(connection_handle hdl) {
 test_multiplexer::job_buffer_type&
 test_multiplexer::virtual_network_buffer(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  return dgram_data_[hdl].vn_buf;
+  return dgram_data_[hdl]->vn_buf;
 }
 
 test_multiplexer::buffer_type&
@@ -600,7 +610,7 @@ test_multiplexer::input_buffer(connection_handle hdl) {
 test_multiplexer::job_type&
 test_multiplexer::output_buffer(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  auto& buf = dgram_data_[hdl].wr_buf;
+  auto& buf = dgram_data_[hdl]->wr_buf;
   buf.emplace_back();
   return buf.back();
 }
@@ -608,14 +618,14 @@ test_multiplexer::output_buffer(dgram_handle hdl) {
 test_multiplexer::job_buffer_type&
 test_multiplexer::output_queue(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  return dgram_data_[hdl].wr_buf;
+  return dgram_data_[hdl]->wr_buf;
 }
 
 test_multiplexer::job_type&
 test_multiplexer::input_buffer(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
   // TODO: should probably return a job_type
-  return dgram_data_[hdl].rd_buf;
+  return dgram_data_[hdl]->rd_buf;
 }
 
 receive_policy::config& test_multiplexer::read_config(connection_handle hdl) {
@@ -630,7 +640,7 @@ bool& test_multiplexer::ack_writes(connection_handle hdl) {
 
 bool& test_multiplexer::ack_writes(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  return dgram_data_[hdl].ack_writes;
+  return dgram_data_[hdl]->ack_writes;
 }
 
 bool& test_multiplexer::stopped_reading(connection_handle hdl) {
@@ -640,7 +650,7 @@ bool& test_multiplexer::stopped_reading(connection_handle hdl) {
 
 bool& test_multiplexer::stopped_reading(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  return dgram_data_[hdl].stopped_reading;
+  return dgram_data_[hdl]->stopped_reading;
 }
 
 bool& test_multiplexer::passive_mode(connection_handle hdl) {
@@ -650,7 +660,7 @@ bool& test_multiplexer::passive_mode(connection_handle hdl) {
 
 bool& test_multiplexer::passive_mode(dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  return dgram_data_[hdl].passive_mode;
+  return dgram_data_[hdl]->passive_mode;
 }
 
 scribe_ptr& test_multiplexer::impl_ptr(connection_handle hdl) {
@@ -662,24 +672,24 @@ uint16_t& test_multiplexer::port(accept_handle hdl) {
 }
 
 uint16_t& test_multiplexer::port(dgram_handle hdl) {
-  return dgram_data_[hdl].port;
+  return dgram_data_[hdl]->port;
 }
 
 uint16_t& test_multiplexer::local_port(dgram_handle hdl) {
-  return dgram_data_[hdl].local_port;
+  return dgram_data_[hdl]->local_port;
 }
 
 size_t& test_multiplexer::datagram_size(dgram_handle hdl) {
-  return dgram_data_[hdl].datagram_size;
+  return dgram_data_[hdl]->datagram_size;
 }
 
 dgram_servant_ptr& test_multiplexer::impl_ptr(dgram_handle hdl) {
-  return dgram_data_[hdl].ptr;
+  return dgram_data_[hdl]->ptr;
 }
 
 test_multiplexer::servants_map&
 test_multiplexer::servants(dgram_handle hdl) {
-  return dgram_data_[hdl].servants;
+  return dgram_data_[hdl]->servants;
 }
 
 bool& test_multiplexer::stopped_reading(accept_handle hdl) {
@@ -932,31 +942,31 @@ bool test_multiplexer::read_data(dgram_handle hdl) {
   flush_runnables();
   if (passive_mode(hdl))
     return false;
-  auto& dd = dgram_data_[hdl];
+  auto dd = dgram_data_[hdl];
   // CAF_ASSERT(dd.ptr != nullptr);
-  if (dd.ptr == nullptr || dd.ptr->parent() == nullptr
-      || !dd.ptr->parent()->getf(abstract_actor::is_initialized_flag))
+  if (dd->ptr == nullptr || dd->ptr->parent() == nullptr
+      || !dd->ptr->parent()->getf(abstract_actor::is_initialized_flag))
     return false;
-  if (dd.vn_buf.back().second.empty())
+  if (dd->vn_buf.back().second.empty())
     return false;
-  dd.rd_buf.second.clear();
-  std::swap(dd.rd_buf, dd.vn_buf.front());
-  dd.vn_buf.pop_front();
+  dd->rd_buf.second.clear();
+  std::swap(dd->rd_buf, dd->vn_buf.front());
+  dd->vn_buf.pop_front();
   std::cerr << "available servants: " << std::endl;
-  for (auto& s : dd.servants)
+  for (auto& s : dd->servants)
     std::cerr << " > " << s.first << std::endl;
-  std::cerr << "looking for: " << dd.rd_buf.first << std::endl;
-  auto& delegate = dd.servants[dd.rd_buf.first];
+  std::cerr << "looking for: " << dd->rd_buf.first << std::endl;
+  auto& delegate = dd->servants[dd->rd_buf.first];
   // TODO: failure should shutdown all related servants
   if (delegate == nullptr) {
-    std::cout << "[rd] datgram with " << dd.rd_buf.second.size() << " bytes "
-              << "on new endpoint "<< dd.rd_buf.first << std::endl;
-    if (!dd.ptr->new_endpoint(dd.rd_buf.first, dd.rd_buf.second))
+    std::cout << "[rd] datgram with " << dd->rd_buf.second.size() << " bytes "
+              << "on new endpoint "<< dd->rd_buf.first << std::endl;
+    if (!dd->ptr->new_endpoint(dd->rd_buf.first, dd->rd_buf.second))
       passive_mode(hdl) = true;
   } else {
-    std::cout << "[rd] datgram with " << dd.rd_buf.second.size() << " bytes "
+    std::cout << "[rd] datgram with " << dd->rd_buf.second.size() << " bytes "
               << "on known endpoint "<< delegate->hdl().id() << std::endl;
-    if (!delegate->consume(this, dd.rd_buf.second))
+    if (!delegate->consume(this, dd->rd_buf.second))
       passive_mode(hdl) = true;
   }
   return true;

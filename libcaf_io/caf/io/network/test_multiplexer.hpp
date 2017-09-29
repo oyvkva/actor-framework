@@ -34,6 +34,8 @@ namespace network {
 class test_multiplexer : public multiplexer {
 private:
   struct dgram_servant_data;
+  
+  using dgram_data_ptr = std::shared_ptr<dgram_servant_data>;
 
 public:
   explicit test_multiplexer(actor_system* sys);
@@ -86,7 +88,7 @@ public:
 
 public:
   dgram_servant_ptr new_dgram_servant_with_data(dgram_handle hdl,
-                                                dgram_servant_data& data);
+                                                dgram_data_ptr data);
 
   dgram_servant_ptr new_dgram_servant(dgram_handle, uint16_t port);
 
@@ -353,7 +355,7 @@ private:
 
   using doorman_data_map = std::unordered_map<accept_handle, doorman_data>;
 
-  using dgram_data_map = std::unordered_map<dgram_handle, dgram_servant_data>;
+  using dgram_data_map = std::unordered_map<dgram_handle, dgram_data_ptr>;
 
   // guards resumables_ and scribes_
   std::mutex mx_;
