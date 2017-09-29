@@ -279,14 +279,15 @@ interfaces::server_address(uint16_t port, const char* host,
 }
 
 bool interfaces::get_endpoint(const std::string& host, uint16_t port,
-                              ip_endpoint& ep, optional<protocol> preferred) {
+                              ip_endpoint& ep,
+                              optional<protocol::network> preferred) {
   addrinfo hint;
   char port_hint[6];
   sprintf(port_hint, "%hu", port);
   memset(&hint, 0, sizeof(hint));
   hint.ai_socktype = SOCK_DGRAM;
   if (preferred)
-    hint.ai_family = *preferred == protocol::ipv4 ? AF_INET : AF_INET6;
+    hint.ai_family = *preferred == protocol::network::ipv4 ? AF_INET : AF_INET6;
   if (hint.ai_family == AF_INET6)
     hint.ai_flags = AI_V4MAPPED;
   addrinfo* tmp = nullptr;

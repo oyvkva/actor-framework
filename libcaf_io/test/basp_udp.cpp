@@ -952,127 +952,128 @@ CAF_TEST(out_of_order_delivery_udp) {
 CAF_TEST_FIXTURE_SCOPE_END()
 
 
-CAF_TEST_FIXTURE_SCOPE(basp_tests_with_autoconn, autoconn_enabled_fixture)
+//CAF_TEST_FIXTURE_SCOPE(basp_tests_with_autoconn, autoconn_enabled_fixture)
+//
+//CAF_TEST(automatic_connection_udp) {
+//  // this tells our BASP broker to enable the automatic connection feature
+//  //anon_send(aut(), ok_atom::value,
+//  //          "middleman.enable-automatic-connections", make_message(true));
+//  //mpx()->exec_runnable(); // process publish message in basp_broker
+//  // jupiter [remote hdl 0] -> mars [remote hdl 1] -> earth [this_node]
+//  // (this node receives a message from jupiter via mars and responds via mars,
+//  //  but then also establishes a connection to jupiter directly)
+//  auto check_node_in_tbl = [&](node& n) {
+//    io::id_visitor id_vis;
+//    auto hdl = tbl().lookup_direct(n.id);
+//    CAF_REQUIRE(hdl);
+//    CAF_CHECK_EQUAL(visit(id_vis, *hdl), n.endpoint.id());
+//  };
+//  mpx()->provide_dgram_servant("jupiter", 8080, jupiter().endpoint);
+//  CAF_CHECK(mpx()->has_pending_remote_endpoint("jupiter", 8080));
+//  CAF_MESSAGE("self: " << to_string(self()->address()));
+//  auto dx = dgram_handle::from_int(4242);
+//  mpx()->provide_dgram_servant(4242, dx);
+//  CAF_MESSAGE("A");
+//  publish(self(), 4242, true);
+//  CAF_MESSAGE("B");
+//  mpx()->flush_runnables(); // process publish message in basp_broker
+//  CAF_MESSAGE("connect to mars");
+//  establish_communication(mars(), dx, self()->id());
+//  //CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
+//  check_node_in_tbl(mars());
+//  CAF_MESSAGE("simulate that an actor from jupiter "
+//              "sends a message to us via mars");
+//  mock(dx, mars().endpoint.id(),
+//       {basp::message_type::dispatch_message, 0, 0, 0,
+//        jupiter().id, this_node(),
+//        jupiter().dummy_actor->id(), self()->id(),
+//        1}, // sequence number
+//       std::vector<actor_id>{},
+//       make_message("hello from jupiter!"))
+//  .receive(mars().endpoint,
+//           basp::message_type::dispatch_message,
+//           basp::header::named_receiver_flag, any_vals, no_operation_data,
+//           this_node(), jupiter().id, any_vals, invalid_actor_id,
+//           spawn_serv_atom,
+//           std::vector<actor_id>{},
+//           make_message(sys_atom::value, get_atom::value, "info"))
+//  .receive(mars().endpoint,
+//           basp::message_type::dispatch_message,
+//           basp::header::named_receiver_flag, any_vals,
+//           no_operation_data, this_node(), jupiter().id,
+//           any_vals, // actor ID of an actor spawned by the BASP broker
+//           invalid_actor_id,
+//           config_serv_atom,
+//           std::vector<actor_id>{},
+//           make_message(get_atom::value, "basp.default-connectivity"))
+//  .receive(mars().endpoint,
+//           basp::message_type::announce_proxy, no_flags, no_payload,
+//           no_operation_data, this_node(), jupiter().id,
+//           invalid_actor_id, jupiter().dummy_actor->id());
+//  CAF_CHECK_EQUAL(mpx()->output_queue(mars().endpoint).size(), 0u);
+//  CAF_CHECK_EQUAL(tbl().lookup_indirect(jupiter().id), mars().id);
+//  CAF_CHECK_EQUAL(tbl().lookup_indirect(mars().id), none);
+//  auto connection_helper = sys.latest_actor_id();
+//  CAF_CHECK_EQUAL(mpx()->output_queue(mars().endpoint).size(), 0u);
+//  // create a dummy config server and respond to the name lookup
+//  CAF_MESSAGE("receive ConfigServ of jupiter");
+//  network::address_listing res;
+//  res[network::protocol::ipv4].emplace_back("jupiter");
+//  mock(dx, mars().endpoint.id(),
+//       {basp::message_type::dispatch_message, 0, 0, 0,
+//        this_node(), this_node(),
+//        invalid_actor_id, connection_helper,
+//        2}, // sequence number
+//       std::vector<actor_id>{},
+//       make_message("basp.default-connectivity",
+//                    make_message(uint16_t{8080}, std::move(res))));
+//  // our connection helper should now connect to jupiter and
+//  // send the scribe handle over to the BASP broker
+//  while (mpx()->has_pending_scribe("jupiter", 8080)) {
+//    sched.run();
+//    mpx()->flush_runnables();
+//  }
+//  CAF_REQUIRE(mpx()->output_queue(mars().endpoint).empty());
+//  CAF_MESSAGE("Let's do the handshake.");
+//  mock(dx, jupiter().endpoint.id(),
+//       {basp::message_type::server_handshake, 0, 0, basp::version,
+//        jupiter().id, none,
+//        jupiter().dummy_actor->id(), invalid_actor_id},
+//       std::string{},
+//       jupiter().dummy_actor->id(),
+//       uint32_t{0});
+// CAF_MESSAGE("Received client handshake.");
+//  mock()
+//  .receive(dx,
+//           basp::message_type::client_handshake, no_flags, 1u,
+//           no_operation_data, this_node(), jupiter().id,
+//           invalid_actor_id, invalid_actor_id, std::string{});
+//  // send handshake from jupiter
+//  CAF_CHECK_EQUAL(tbl().lookup_indirect(jupiter().id), none);
+//  CAF_CHECK_EQUAL(tbl().lookup_indirect(mars().id), none);
+//  //CAF_CHECK_EQUAL(tbl().lookup_direct(jupiter().id).id(),
+//  //                jupiter().connection.id());
+//  //CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
+//  check_node_in_tbl(jupiter());
+//  check_node_in_tbl(mars());
+//  CAF_MESSAGE("receive message from jupiter");
+//  self()->receive(
+//    [](const std::string& str) -> std::string {
+//      CAF_CHECK_EQUAL(str, "hello from jupiter!");
+//      return "hello from earth!";
+//    }
+//  );
+//  mpx()->exec_runnable(); // process forwarded message in basp_broker
+//  CAF_MESSAGE("response message must take direct route now");
+//  mock()
+//  .receive(jupiter().endpoint,
+//          basp::message_type::dispatch_message, no_flags, any_vals,
+//          no_operation_data, this_node(), jupiter().id,
+//          self()->id(), jupiter().dummy_actor->id(),
+//          std::vector<actor_id>{},
+//          make_message("hello from earth!"));
+//  CAF_CHECK_EQUAL(mpx()->output_queue(mars().endpoint).size(), 0u);
+//}
+//
+//CAF_TEST_FIXTURE_SCOPE_END()
 
-CAF_TEST(automatic_connection_udp) {
-  // this tells our BASP broker to enable the automatic connection feature
-  //anon_send(aut(), ok_atom::value,
-  //          "middleman.enable-automatic-connections", make_message(true));
-  //mpx()->exec_runnable(); // process publish message in basp_broker
-  // jupiter [remote hdl 0] -> mars [remote hdl 1] -> earth [this_node]
-  // (this node receives a message from jupiter via mars and responds via mars,
-  //  but then also establishes a connection to jupiter directly)
-  auto check_node_in_tbl = [&](node& n) {
-    io::id_visitor id_vis;
-    auto hdl = tbl().lookup_direct(n.id);
-    CAF_REQUIRE(hdl);
-    CAF_CHECK_EQUAL(visit(id_vis, *hdl), n.endpoint.id());
-  };
-  mpx()->provide_dgram_servant("jupiter", 8080, jupiter().endpoint);
-  CAF_CHECK(mpx()->has_pending_remote_endpoint("jupiter", 8080));
-  CAF_MESSAGE("self: " << to_string(self()->address()));
-  auto dx = dgram_handle::from_int(4242);
-  mpx()->provide_dgram_servant(4242, dx);
-  CAF_MESSAGE("A");
-  publish(self(), 4242, true);
-  CAF_MESSAGE("B");
-  mpx()->flush_runnables(); // process publish message in basp_broker
-  CAF_MESSAGE("connect to mars");
-  establish_communication(mars(), dx, self()->id());
-  //CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
-  check_node_in_tbl(mars());
-  CAF_MESSAGE("simulate that an actor from jupiter "
-              "sends a message to us via mars");
-  mock(dx, mars().endpoint.id(),
-       {basp::message_type::dispatch_message, 0, 0, 0,
-        jupiter().id, this_node(),
-        jupiter().dummy_actor->id(), self()->id(),
-        1}, // sequence number
-       std::vector<actor_id>{},
-       make_message("hello from jupiter!"))
-  .receive(mars().endpoint,
-           basp::message_type::dispatch_message,
-           basp::header::named_receiver_flag, any_vals, no_operation_data,
-           this_node(), jupiter().id, any_vals, invalid_actor_id,
-           spawn_serv_atom,
-           std::vector<actor_id>{},
-           make_message(sys_atom::value, get_atom::value, "info"))
-  .receive(mars().endpoint,
-           basp::message_type::dispatch_message,
-           basp::header::named_receiver_flag, any_vals,
-           no_operation_data, this_node(), jupiter().id,
-           any_vals, // actor ID of an actor spawned by the BASP broker
-           invalid_actor_id,
-           config_serv_atom,
-           std::vector<actor_id>{},
-           make_message(get_atom::value, "basp.default-connectivity"))
-  .receive(mars().endpoint,
-           basp::message_type::announce_proxy, no_flags, no_payload,
-           no_operation_data, this_node(), jupiter().id,
-           invalid_actor_id, jupiter().dummy_actor->id());
-  CAF_CHECK_EQUAL(mpx()->output_queue(mars().endpoint).size(), 0u);
-  CAF_CHECK_EQUAL(tbl().lookup_indirect(jupiter().id), mars().id);
-  CAF_CHECK_EQUAL(tbl().lookup_indirect(mars().id), none);
-  auto connection_helper = sys.latest_actor_id();
-  CAF_CHECK_EQUAL(mpx()->output_queue(mars().endpoint).size(), 0u);
-  // create a dummy config server and respond to the name lookup
-  CAF_MESSAGE("receive ConfigServ of jupiter");
-  network::address_listing res;
-  res[network::protocol::ipv4].emplace_back("jupiter");
-  mock(dx, mars().endpoint.id(),
-       {basp::message_type::dispatch_message, 0, 0, 0,
-        this_node(), this_node(),
-        invalid_actor_id, connection_helper,
-        2}, // sequence number
-       std::vector<actor_id>{},
-       make_message("basp.default-connectivity",
-                    make_message(uint16_t{8080}, std::move(res))));
-  // our connection helper should now connect to jupiter and
-  // send the scribe handle over to the BASP broker
-  while (mpx()->has_pending_scribe("jupiter", 8080)) {
-    sched.run();
-    mpx()->flush_runnables();
-  }
-  CAF_REQUIRE(mpx()->output_queue(mars().endpoint).empty());
-  CAF_MESSAGE("Let's do the handshake.");
-  mock(dx, jupiter().endpoint.id(),
-       {basp::message_type::server_handshake, 0, 0, basp::version,
-        jupiter().id, none,
-        jupiter().dummy_actor->id(), invalid_actor_id},
-       std::string{},
-       jupiter().dummy_actor->id(),
-       uint32_t{0});
- CAF_MESSAGE("Received client handshake.");
-  mock()
-  .receive(dx,
-           basp::message_type::client_handshake, no_flags, 1u,
-           no_operation_data, this_node(), jupiter().id,
-           invalid_actor_id, invalid_actor_id, std::string{});
-  // send handshake from jupiter
-  CAF_CHECK_EQUAL(tbl().lookup_indirect(jupiter().id), none);
-  CAF_CHECK_EQUAL(tbl().lookup_indirect(mars().id), none);
-  //CAF_CHECK_EQUAL(tbl().lookup_direct(jupiter().id).id(),
-  //                jupiter().connection.id());
-  //CAF_CHECK_EQUAL(tbl().lookup_direct(mars().id).id(), mars().connection.id());
-  check_node_in_tbl(jupiter());
-  check_node_in_tbl(mars());
-  CAF_MESSAGE("receive message from jupiter");
-  self()->receive(
-    [](const std::string& str) -> std::string {
-      CAF_CHECK_EQUAL(str, "hello from jupiter!");
-      return "hello from earth!";
-    }
-  );
-  mpx()->exec_runnable(); // process forwarded message in basp_broker
-  CAF_MESSAGE("response message must take direct route now");
-  mock()
-  .receive(jupiter().endpoint,
-          basp::message_type::dispatch_message, no_flags, any_vals,
-          no_operation_data, this_node(), jupiter().id,
-          self()->id(), jupiter().dummy_actor->id(),
-          std::vector<actor_id>{},
-          make_message("hello from earth!"));
-  CAF_CHECK_EQUAL(mpx()->output_queue(mars().endpoint).size(), 0u);
-}
-
-CAF_TEST_FIXTURE_SCOPE_END()

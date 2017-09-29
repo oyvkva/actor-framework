@@ -1598,7 +1598,7 @@ expected<native_socket> new_tcp_acceptor_impl(uint16_t port, const char* addr,
 
 expected<std::pair<native_socket, ip_endpoint>>
 new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
-                             optional<protocol> preferred) {
+                             optional<protocol::network> preferred) {
   CAF_LOG_TRACE(CAF_ARG(host) << CAF_ARG(port) << CAF_ARG(preferred));
   // TODO: Include a setting for reuse addr (currently always false)
   auto reuse = false;
@@ -1618,9 +1618,9 @@ new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
   return info;
 }
 
-expected<std::pair<native_socket, protocol>>
+expected<std::pair<native_socket, protocol::network>>
 new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
-                            optional<protocol> preferred) {
+                            optional<protocol::network> preferred) {
   CAF_LOG_TRACE(CAF_ARG(port) << ", addr = " << (addr ? addr : "nullptr"));
   auto addrs = interfaces::server_address(port, addr, preferred);
   auto addr_str = std::string{addr == nullptr ? "" : addr};
@@ -1629,7 +1629,7 @@ new_local_udp_endpoint_impl(uint16_t port, const char* addr, bool reuse,
                       addr_str);
   bool any = addr_str.empty() || addr_str == "::" || addr_str == "0.0.0.0";
   auto fd = invalid_native_socket;
-  protocol proto;
+  protocol::network proto;
   for (auto& elem : addrs) {
     auto host = elem.first.c_str();
     auto p = elem.second == ipv4

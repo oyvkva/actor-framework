@@ -83,7 +83,7 @@ public:
   /// Writes datagram endpoint info for `host`:`port` into ep
   static bool
   get_endpoint(const std::string& host, uint16_t port, ip_endpoint& ep,
-               optional<protocol> preferred = none);
+               optional<protocol::network> preferred = none);
 };
 
 } // namespace network

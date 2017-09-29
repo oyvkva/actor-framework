@@ -722,9 +722,6 @@ private:
   ProtocolPolicy policy_;
 };
 
-expected<native_socket>
-new_tcp_connection(const std::string& host, uint16_t port,
-                   optional<protocol::network> preferred = none);
 class dgram_handler : public event_handler {
 // TODO:
 // - Clean up after timeout.
@@ -958,12 +955,12 @@ private:
 std::tuple<std::string, uint16_t>
 sender_from_sockaddr(const sockaddr_storage& sa, size_t len);
 
-expected<native_socket> new_tcp_connection(const std::string& host,
-                                           uint16_t port,
-                                           optional<protocol> preferred = none);
+expected<native_socket>
+new_tcp_connection(const std::string& host, uint16_t port,
+                   optional<protocol::network> preferred = none);
 
-expected<native_socket> new_tcp_acceptor_impl(uint16_t port, const char* addr,
-                                              bool reuse_addr);
+expected<native_socket>
+new_tcp_acceptor_impl(uint16_t port, const char* addr, bool reuse_addr);
 
 /// Default doorman implementation.
 class doorman_impl : public doorman {
@@ -1071,12 +1068,12 @@ private:
 
 expected<std::pair<native_socket, ip_endpoint>>
 new_remote_udp_endpoint_impl(const std::string& host, uint16_t port,
-                             optional<protocol> preferred = none);
+                             optional<protocol::network> preferred = none);
 
-expected<std::pair<native_socket, protocol>>
+expected<std::pair<native_socket, protocol::network>>
 new_local_udp_endpoint_impl(uint16_t port, const char* addr,
                             bool reuse_addr = false,
-                            optional<protocol> preferred = none);
+                            optional<protocol::network> preferred = none);
 
 } // namespace network
 } // namespace io
