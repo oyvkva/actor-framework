@@ -56,6 +56,10 @@ public:
 
   result_type operator()(stream_msg::forced_drop& x);
 
+  result_type operator()(stream_msg::scatterer_timeout& x);
+
+  result_type operator()(stream_msg::gatherer_timeout& x);
+
 private:
   // Invokes `f` on the stream manager. On error calls `abort` on the manager
   // and removes it from the streams map.

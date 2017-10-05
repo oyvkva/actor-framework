@@ -106,4 +106,17 @@ long invalid_stream_gatherer::initial_credit(long, path_type*) {
   return 0;
 }
 
+void
+invalid_stream_gatherer::handle_timeout(const stream_msg::gatherer_timeout&) {
+  // nop
+}
+
+bool invalid_stream_gatherer::has_timeout() const {
+  return false;
+}
+
+void invalid_stream_gatherer::set_timeout(atom_value, const caf::duration&)  {
+  // nop
+}
+
 } // namespace caf

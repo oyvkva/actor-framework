@@ -208,6 +208,14 @@ public:
     continuous_ = value;
   }
 
+  void handle_timeout(const typename super::timeout_type&) override {
+    // nop
+  }
+
+  bool has_timeout() const override {
+    return false;
+  }
+
   // -- implementation of identical methods in scatterer and gatherer  ---------
 
   path_ptr path_at(size_t index) override {
@@ -221,6 +229,10 @@ public:
   }
 
 protected:
+  void set_timeout(atom_value, const caf::duration&) override {
+    // nop
+  }
+
   /// Adds a path to the edge without emitting messages.
   path_ptr add_path_impl(const stream_id& sid, strong_actor_ptr x) {
     CAF_LOG_TRACE(CAF_ARG(x) << CAF_ARG(sid));

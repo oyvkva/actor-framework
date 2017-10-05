@@ -122,4 +122,20 @@ auto stream_msg_visitor::operator()(stream_msg::ack_batch& x) -> result_type {
   });
 }
 
+auto stream_msg_visitor::operator()(stream_msg::scatterer_timeout& x)
+  -> result_type {
+  return invoke([&](stream_manager_ptr& mgr) {
+    mgr->out().handle_timeout(x);
+    return none;
+  });
+}
+
+auto stream_msg_visitor::operator()(stream_msg::gatherer_timeout& x)
+  -> result_type {
+  return invoke([&](stream_manager_ptr& mgr) {
+    mgr->in().handle_timeout(x);
+    return none;
+  });
+}
+
 } // namespace caf

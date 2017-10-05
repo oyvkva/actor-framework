@@ -20,6 +20,7 @@
 #include "caf/stream_scatterer.hpp"
 
 #include "caf/logger.hpp"
+#include "caf/duration.hpp"
 #include "caf/actor_addr.hpp"
 #include "caf/actor_cast.hpp"
 #include "caf/outbound_path.hpp"
@@ -39,6 +40,10 @@ bool stream_scatterer::remove_path(const stream_id& sid,
 stream_scatterer::path_type* stream_scatterer::find(const stream_id& sid,
                                                     const strong_actor_ptr& x) {
   return find(sid, actor_cast<actor_addr>(x));
+}
+
+void stream_scatterer::cancel_timeout(atom_value key) {
+  set_timeout(key, infinite);
 }
 
 } // namespace caf

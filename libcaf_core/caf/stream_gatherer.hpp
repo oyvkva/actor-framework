@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "caf/fwd.hpp"
+#include "caf/stream_msg.hpp"
 
 namespace caf {
 
@@ -32,6 +33,9 @@ namespace caf {
 class stream_gatherer {
 public:
   // -- member types -----------------------------------------------------------
+
+  /// Type of the stream message for triggering timeouts.
+  using timeout_type = stream_msg::gatherer_timeout;
 
   /// Type of a single path to a data source.
   using path_type = inbound_path;
@@ -121,6 +125,13 @@ public:
   /// Calculates initial credit for `x` after adding it to the gatherer.
   virtual long initial_credit(long downstream_capacity, path_ptr x) = 0;
 
+  /// Triggers a previously set timeout.
+  virtual void handle_timeout(const stream_msg::gatherer_timeout& x) = 0;
+
+  /// Returns `true` if the scatterer requested a timeout using `set_timeout`,
+  /// otherwise `false`.
+  virtual bool has_timeout() const = 0;
+
   // -- convenience functions --------------------------------------------------
 
   /// Removes a path from the gatherer.
@@ -129,6 +140,16 @@ public:
 
   /// Convenience function for calling `find(x, actor_cast<actor_addr>(x))`.
   path_ptr find(const stream_id& sid, const strong_actor_ptr& x);
+
+protected:
+  /// Requests a timeout of type `key` with duration `x`. Overrides any
+  /// previous timeout.
+  virtual void set_timeout(atom_value key, const caf::duration& x) = 0;
+
+  // -- convenience functions --------------------------------------------------
+  //
+  /// Cancels the current timeout by calling `set_timeout(key, infinite)`.
+  void cancel_timeout(atom_value key);
 };
 
 } // namespace caf

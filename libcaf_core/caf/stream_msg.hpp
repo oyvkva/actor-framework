@@ -126,14 +126,36 @@ struct stream_msg : tag::boxing_type {
     error reason;
   };
 
+  /// Allows scatterers to manage timeouts.
+  struct scatterer_timeout {
+    /// Allows the testing DSL to unbox this type automagically.
+    using outer_type = stream_msg;
+    /// Allows the scatterer to define different timeout types.
+    atom_value type;
+    /// Allows the scatterer to hafe multiple in-flight timeouts.
+    int64_t id;
+  };
+
+  /// Allows scatterers to manage timeouts.
+  struct gatherer_timeout {
+    /// Allows the testing DSL to unbox this type automagically.
+    using outer_type = stream_msg;
+    /// Allows the scatterer to define different timeout types.
+    atom_value type;
+    /// Allows the scatterer to hafe multiple in-flight timeouts.
+    int64_t id;
+  };
+
   /// Lists all possible options for the payload.
   using content_alternatives =
     detail::type_list<open, ack_open, batch, ack_batch, close, drop,
-                      forced_close, forced_drop>;
+                      forced_close, forced_drop, scatterer_timeout,
+                      gatherer_timeout>;
 
   /// Stores one of `content_alternatives`.
-  using content_type = variant<open, ack_open, batch, ack_batch, close, drop,
-                               forced_close, forced_drop>;
+  using content_type =
+    variant<open, ack_open, batch, ack_batch, close, drop, forced_close,
+            forced_drop, scatterer_timeout, gatherer_timeout>;
 
   /// ID of the affected stream.
   stream_id sid;
@@ -232,6 +254,18 @@ template <class Inspector>
 typename Inspector::result_type inspect(Inspector& f,
                                         stream_msg::forced_drop& x) {
   return f(meta::type_name("forced_drop"), x.reason);
+}
+
+template <class Inspector>
+typename Inspector::result_type inspect(Inspector& f,
+                                        stream_msg::scatterer_timeout& x) {
+  return f(meta::type_name("scatterer_timeout"), x.type, x.id);
+}
+
+template <class Inspector>
+typename Inspector::result_type inspect(Inspector& f,
+                                        stream_msg::gatherer_timeout& x) {
+  return f(meta::type_name("gatherer_timeout"), x.type, x.id);
 }
 
 template <class Inspector>

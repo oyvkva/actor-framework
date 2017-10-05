@@ -126,4 +126,17 @@ void invalid_stream_scatterer::max_batch_delay(duration) {
   // nop
 }
 
+void
+invalid_stream_scatterer::handle_timeout(const stream_msg::scatterer_timeout&) {
+  // nop
+}
+
+bool invalid_stream_scatterer::has_timeout() const {
+  return false;
+}
+
+void invalid_stream_scatterer::set_timeout(atom_value, const caf::duration&)  {
+  // nop
+}
+
 } // namespace caf

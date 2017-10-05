@@ -70,6 +70,13 @@ public:
   void assign_credit(long downstream_capacity) override;
 
   long initial_credit(long downstream_capacity, path_type* x) override;
+
+  void handle_timeout(const stream_msg::gatherer_timeout& x) override;
+
+  bool has_timeout() const override;
+
+protected:
+  void set_timeout(atom_value key, const caf::duration& x) override;
 };
 
 } // namespace caf

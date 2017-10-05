@@ -23,8 +23,7 @@
 #include <cstddef>
 
 #include "caf/fwd.hpp"
-#include "caf/duration.hpp"
-#include "caf/optional.hpp"
+#include "caf/stream_msg.hpp"
 #include "caf/mailbox_element.hpp"
 
 namespace caf {
@@ -34,8 +33,13 @@ class stream_scatterer {
 public:
   // -- member types -----------------------------------------------------------
 
+  /// Type of the stream message for triggering timeouts.
+  using timeout_type = stream_msg::scatterer_timeout;
+
+  /// Type of a single path to a data sink.
   using path_type = outbound_path;
 
+  /// Pointer to a single path to a data sink.
   using path_ptr = path_type*;
 
   // -- constructors, destructors, and assignment operators --------------------
@@ -116,7 +120,7 @@ public:
   /// new batches immediately when receiving new downstream demand.
   virtual long min_buffer_size() const = 0;
 
-  /// Forces to actor to emit a batch even if the minimum batch size was not
+  /// Forces the actor to emit a batch even if the minimum batch size was not
   /// reached.
   virtual duration max_batch_delay() const = 0;
 
@@ -136,6 +140,13 @@ public:
   /// reached.
   virtual void max_batch_delay(duration x) = 0;
 
+  /// Triggers a previously set timeout.
+  virtual void handle_timeout(const stream_msg::scatterer_timeout& x) = 0;
+
+  /// Returns `true` if the scatterer requested a timeout using `set_timeout`,
+  /// otherwise `false`.
+  virtual bool has_timeout() const = 0;
+
   // -- convenience functions --------------------------------------------------
 
   /// Removes a path from the scatterer.
@@ -144,6 +155,16 @@ public:
 
   /// Convenience function for calling `find(x, actor_cast<actor_addr>(x))`.
   path_ptr find(const stream_id& sid, const strong_actor_ptr& x);
+
+protected:
+  /// Requests a timeout of type `key` with duration `x`. Overrides any
+  /// previous timeout.
+  virtual void set_timeout(atom_value key, const caf::duration& x) = 0;
+
+  // -- convenience functions --------------------------------------------------
+  //
+  /// Cancels the current timeout by calling `set_timeout(key, infinite)`.
+  void cancel_timeout(atom_value);
 };
 
 } // namespace caf

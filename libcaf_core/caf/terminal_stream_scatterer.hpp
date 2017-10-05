@@ -84,6 +84,13 @@ public:
   void min_buffer_size(long x) override;
 
   void max_batch_delay(duration x) override;
+
+  void handle_timeout(const stream_msg::scatterer_timeout& x) override;
+
+  bool has_timeout() const override;
+
+protected:
+  void set_timeout(atom_value key, const caf::duration& x) override;
 };
 
 } // namespace caf
