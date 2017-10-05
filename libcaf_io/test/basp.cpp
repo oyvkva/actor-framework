@@ -826,7 +826,7 @@ CAF_TEST(automatic_connection) {
           invalid_actor_id,
           config_serv_atom,
           std::vector<actor_id>{},
-          make_message(get_atom::value, "basp.default-connectivity"))
+          make_message(get_atom::value, "basp.default-connectivity-tcp"))
   .receive(mars().connection,
           basp::message_type::announce_proxy, no_flags, no_payload,
           no_operation_data, this_node(), jupiter().id,
@@ -834,7 +834,7 @@ CAF_TEST(automatic_connection) {
   CAF_CHECK_EQUAL(mpx()->output_buffer(mars().connection).size(), 0u);
   CAF_CHECK_EQUAL(tbl().lookup_indirect(jupiter().id), mars().id);
   CAF_CHECK_EQUAL(tbl().lookup_indirect(mars().id), none);
-  auto connection_helper = sys.latest_actor_id();
+  auto connection_helper_actor = sys.latest_actor_id();
   CAF_CHECK_EQUAL(mpx()->output_buffer(mars().connection).size(), 0u);
   // create a dummy config server and respond to the name lookup
   CAF_MESSAGE("receive ConfigServ of jupiter");
@@ -843,9 +843,9 @@ CAF_TEST(automatic_connection) {
   mock(mars().connection,
        {basp::message_type::dispatch_message, 0, 0, 0,
         this_node(), this_node(),
-        invalid_actor_id, connection_helper},
+        invalid_actor_id, connection_helper_actor},
        std::vector<actor_id>{},
-       make_message("basp.default-connectivity",
+       make_message("basp.default-connectivity-tcp",
                     make_message(uint16_t{8080}, std::move(res))));
   // our connection helper should now connect to jupiter and
   // send the scribe handle over to the BASP broker

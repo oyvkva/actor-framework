@@ -247,6 +247,7 @@ public:
   actor_system_config& set(const char* cn, config_value cv);
 
   // -- config parameters of the scheduler -------------------------------------
+
   atom_value scheduler_policy;
   size_t scheduler_max_threads;
   size_t scheduler_max_throughput;
@@ -288,6 +289,8 @@ public:
   size_t middleman_heartbeat_interval;
   bool middleman_detach_utility_actors;
   bool middleman_detach_multiplexer;
+  bool middleman_enable_tcp;
+  bool middleman_enable_udp;
 
   // -- config parameters of the OpenCL module ---------------------------------
 

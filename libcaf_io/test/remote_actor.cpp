@@ -40,6 +40,7 @@ class config : public actor_system_config {
 public:
   config() {
     load<io::middleman>();
+    set("middleman.enable-udp", true);
     add_message_type<std::vector<int>>("std::vector<int>");
     actor_system_config::parse(test::engine::argc(),
                                test::engine::argv());

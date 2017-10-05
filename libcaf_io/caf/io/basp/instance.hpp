@@ -199,8 +199,8 @@ public:
   }
 
   /// Writes a header followed by its payload to `storage`.
-  void write(execution_unit* ctx, buffer_type& buf, header& hdr,
-             payload_writer* pw = nullptr);
+  static void write(execution_unit* ctx, buffer_type& buf, header& hdr,
+                    payload_writer* pw = nullptr);
 
   /// Writes the server handshake containing the information of the
   /// actor published at `port` to `buf`. If `port == none` or
@@ -209,6 +209,13 @@ public:
   void write_server_handshake(execution_unit* ctx,
                               buffer_type& out_buf, optional<uint16_t> port,
                               uint16_t sequence_number = 0);
+
+  static void write_client_handshake(execution_unit* ctx,
+                                     buffer_type& buf,
+                                     const node_id& remote_side,
+                                     const node_id& this_node,
+                                     const std::string& app_identifier,
+                                     uint16_t sequence_number = 0);
 
   /// Writes the client handshake to `buf`.
   void write_client_handshake(execution_unit* ctx,

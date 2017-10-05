@@ -38,9 +38,11 @@ public:
 
   using mpi_set = std::set<std::string>;
 
-  using get_res = delegated<node_id, strong_actor_ptr, mpi_set>;
+  using get_res = result<node_id, strong_actor_ptr, mpi_set>;
 
-  using del_res = delegated<void>;
+  using get_delegated = delegated<node_id, strong_actor_ptr, mpi_set>;
+
+  using del_res = result<void>;
 
   using endpoint_data = std::tuple<node_id, strong_actor_ptr, mpi_set>;
 

@@ -29,6 +29,7 @@ set (LIBCAF_IO_SRCS
      src/dgram_servant.cpp
      src/dgram_manager.cpp
      src/ip_endpoint.cpp
+     src/connection_helper.cpp
      # BASP files
      src/header.cpp
      src/message_type.cpp

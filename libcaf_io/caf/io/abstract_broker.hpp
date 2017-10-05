@@ -299,6 +299,30 @@ public:
     if (i != elements.end())
       elements.erase(i);
   }
+
+  // meta programming utility (not implemented)
+  static intrusive_ptr<doorman> ptr_of(accept_handle);
+
+  // meta programming utility (not implemented)
+  static intrusive_ptr<scribe> ptr_of(connection_handle);
+
+  // meta programming utility (not implemented)
+  static intrusive_ptr<dgram_servant> ptr_of(dgram_handle);
+
+  /// Returns an intrusive pointer to a `scribe` or `doorman`
+  /// identified by `hdl` and remove it from this broker.
+  template <class Handle>
+  auto take(Handle hdl) -> decltype(ptr_of(hdl)) {
+    using std::swap;
+    auto& elements = get_map(hdl);
+    decltype(ptr_of(hdl)) result;
+    auto i = elements.find(hdl);
+    if (i == elements.end())
+      return nullptr;
+    swap(result, i->second);
+    elements.erase(i);
+    return result;
+  }
   /// @endcond
 
   // -- overridden observers of abstract_actor ---------------------------------
@@ -349,16 +373,6 @@ protected:
   inline dgram_servant_map& get_map(dgram_handle) {
     return dgram_servants_;
   }
-
-  // meta programming utility (not implemented)
-  static intrusive_ptr<doorman> ptr_of(accept_handle);
-
-  // meta programming utility (not implemented)
-  static intrusive_ptr<scribe> ptr_of(connection_handle);
-
-  // meta programming utility (not implemented)
-  static intrusive_ptr<dgram_servant> ptr_of(dgram_handle);
-
   /// @endcond
 
   /// Returns a `scribe` or `doorman` identified by `hdl`.
@@ -369,21 +383,6 @@ protected:
     if (i == elements.end())
       return none;
     return *(i->second);
-  }
-
-  /// Returns an intrusive pointer to a `scribe` or `doorman`
-  /// identified by `hdl` and remove it from this broker.
-  template <class Handle>
-  auto take(Handle hdl) -> decltype(ptr_of(hdl)) {
-    using std::swap;
-    auto& elements = get_map(hdl);
-    decltype(ptr_of(hdl)) result;
-    auto i = elements.find(hdl);
-    if (i == elements.end())
-      return nullptr;
-    swap(result, i->second);
-    elements.erase(i);
-    return result;
   }
 
 private:

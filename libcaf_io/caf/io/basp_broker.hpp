@@ -170,6 +170,8 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
   // to establish new connections at runtime to optimize
   // routing paths by forming a mesh between all nodes
   bool enable_automatic_connections = false;
+  bool enable_tcp = true;
+  bool enable_udp = false;
 
   // returns the node identifier of the underlying BASP instance
   const node_id& this_node() const {

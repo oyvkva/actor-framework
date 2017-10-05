@@ -31,7 +31,6 @@
 #include "caf/actor_proxy.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/typed_event_based_actor.hpp"
-#include "caf/typed_event_based_actor.hpp"
 
 #include "caf/io/basp_broker.hpp"
 #include "caf/io/system_messages.hpp"
@@ -85,18 +84,22 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
     [=](publish_atom, uint16_t port, strong_actor_ptr& whom, mpi_set& sigs,
         std::string& addr, bool reuse) -> put_res {
       CAF_LOG_TRACE("");
+      if (!system().config().middleman_enable_tcp)
+        return make_error(sec::feature_disabled);
       return put(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](open_atom, uint16_t port, std::string& addr, bool reuse) -> put_res {
       CAF_LOG_TRACE("");
+      if (!system().config().middleman_enable_tcp)
+        return make_error(sec::feature_disabled);
       strong_actor_ptr whom;
       mpi_set sigs;
       return put(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](connect_atom, std::string& hostname, uint16_t port) -> get_res {
-      std::cout << "[mm] connecting to TCP endpoint on " << hostname << ":"
-                << port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(hostname) << CAF_ARG(port));
+      if (!system().config().middleman_enable_tcp)
+        return make_error(sec::feature_disabled);
       auto rp = make_response_promise();
       endpoint key{std::move(hostname), port};
       // respond immediately if endpoint is cached
@@ -104,20 +107,20 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       if (x) {
         CAF_LOG_DEBUG("found cached entry" << CAF_ARG(*x));
         rp.deliver(get<0>(*x), get<1>(*x), get<2>(*x));
-        return {};
+        return get_delegated{};
       }
       // attach this promise to a pending request if possible
       auto rps = pending(key);
       if (rps) {
         CAF_LOG_DEBUG("attach to pending request");
         rps->emplace_back(std::move(rp));
-        return {};
+        return get_delegated{};
       }
       // connect to endpoint and initiate handhsake etc.
       auto r = connect(key.first, port);
       if (!r) {
         rp.deliver(std::move(r.error()));
-        return {};
+        return get_delegated{};
       }
       auto& ptr = *r;
       std::vector<response_promise> tmp{std::move(rp)};
@@ -146,17 +149,21 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
               promise.deliver(err);
             pending_.erase(i);
           });
-      return {};
+      return get_delegated{};
     },
     [=](publish_udp_atom, uint16_t port, strong_actor_ptr& whom,
         mpi_set& sigs, std::string& addr, bool reuse) -> put_res {
       CAF_LOG_TRACE("");
+      if (!system().config().middleman_enable_udp)
+        return make_error(sec::feature_disabled);
       return put_udp(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](contact_atom, std::string& hostname, uint16_t port) -> get_res {
       std::cout << "[mm] contacting UDP endpoint on " << hostname << ":"
                 << port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(hostname) << CAF_ARG(port));
+      if (!system().config().middleman_enable_udp)
+        return make_error(sec::feature_disabled);
       auto rp = make_response_promise();
       endpoint key{std::move(hostname), port};
       // respond immediately if endpoint is cached
@@ -164,20 +171,20 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       if (x) {
         CAF_LOG_DEBUG("found cached entry" << CAF_ARG(*x));
         rp.deliver(get<0>(*x), get<1>(*x), get<2>(*x));
-        return {};
+        return get_delegated{};
       }
       // attach this promise to a pending request if possible
       auto rps = pending(key);
       if (rps) {
         CAF_LOG_DEBUG("attach to pending request");
         rps->emplace_back(std::move(rp));
-        return {};
+        return get_delegated{};
       }
       // connect to endpoint and initiate handshake etc.
       auto r = contact(key.first, port);
       if (!r) {
         rp.deliver(std::move(r.error()));
-        return {};
+        return get_delegated{};
       }
       auto& ptr = *r;
       std::vector<response_promise> tmp{std::move(rp)};
@@ -209,7 +216,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
               promise.deliver(err);
             pending_.erase(i);
           });
-      return {};
+      return get_delegated{};
     },
     // TODO: implement unpublish, open and close for UDP
     [=](unpublish_atom atm, actor_addr addr, uint16_t p) -> del_res {

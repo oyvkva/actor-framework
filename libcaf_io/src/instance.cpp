@@ -547,16 +547,26 @@ void instance::write_server_handshake(execution_unit* ctx,
 void instance::write_client_handshake(execution_unit* ctx,
                                       buffer_type& buf,
                                       const node_id& remote_side,
+                                      const node_id& this_node,
+                                      const std::string& app_identifier,
                                       uint16_t sequence_number) {
   CAF_LOG_TRACE(CAF_ARG(remote_side));
   auto writer = make_callback([&](serializer& sink) -> error {
-    auto& str = callee_.system().config().middleman_app_identifier;
-    return sink(const_cast<std::string&>(str));
+    return sink(const_cast<std::string&>(app_identifier));
   });
   header hdr{message_type::client_handshake, 0, 0, 0,
-             this_node_, remote_side, invalid_actor_id, invalid_actor_id,
+             this_node, remote_side, invalid_actor_id, invalid_actor_id,
              sequence_number};
   write(ctx, buf, hdr, &writer);
+}
+
+void instance::write_client_handshake(execution_unit* ctx,
+                                      buffer_type& buf,
+                                      const node_id& remote_side,
+                                      uint16_t sequence_number) {
+  write_client_handshake(ctx, buf, remote_side, this_node_,
+                         callee_.system().config().middleman_app_identifier,
+                         sequence_number);
 }
 
 void instance::write_announce_proxy(execution_unit* ctx, buffer_type& buf,

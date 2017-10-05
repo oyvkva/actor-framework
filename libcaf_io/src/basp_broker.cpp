@@ -35,6 +35,7 @@
 
 #include "caf/io/basp/all.hpp"
 #include "caf/io/middleman.hpp"
+#include "caf/io/connection_helper.hpp"
 
 #include "caf/io/network/interfaces.hpp"
 
@@ -66,7 +67,6 @@ basp_broker_state::~basp_broker_state() {
 }
 
 strong_actor_ptr basp_broker_state::make_proxy(node_id nid, actor_id aid) {
-  std::cout << "[bbs] creating a proxy" << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid));
   CAF_ASSERT(nid != this_node());
   if (nid == none || aid == invalid_actor_id)
@@ -125,21 +125,17 @@ execution_unit* basp_broker_state::registry_context() {
 
 void basp_broker_state::finalize_handshake(const node_id& nid, actor_id aid,
                                            std::set<std::string>& sigs) {
-//  std::cout << "[fh] for " << to_string(nid) << " + " << aid << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid) << CAF_ARG(sigs));
   CAF_ASSERT(this_context != nullptr);
   this_context->id = nid;
   auto& cb = this_context->callback;
-  if (!cb) {
-//    std::cout << "[fh] No callback available" << std::endl;
+  if (!cb)
     return;
-  }
   auto cleanup = detail::make_scope_guard([&] {
     cb = none;
   });
   strong_actor_ptr ptr;
   if (aid == invalid_actor_id) {
-//    std::cout << "[fh] encountered invalid actor" << std::endl;
     // can occur when connecting to the default port of a node
     cb->deliver(nid, ptr, std::move(sigs));
     return;
@@ -152,7 +148,6 @@ void basp_broker_state::finalize_handshake(const node_id& nid, actor_id aid,
     ptr = namespace_.get_or_put(nid, aid);
     CAF_LOG_ERROR_IF(!ptr, "creating actor in finalize_handshake failed");
   }
-//  std::cout << "[fh] delivering callback" << std::endl;
   cb->deliver(make_message(nid, ptr, std::move(sigs)));
   this_context->callback = none;
 }
@@ -297,7 +292,6 @@ void basp_broker_state::deliver(const node_id& src_nid, actor_id src_aid,
 }
 
 void basp_broker_state::learned_new_node(const node_id& nid) {
-  std::cout << "[bbs] learned new node" << std::endl;
   CAF_LOG_TRACE(CAF_ARG(nid));
   if (spawn_servers.count(nid) > 0) {
     CAF_LOG_ERROR("learned_new_node called for known node " << CAF_ARG(nid));
@@ -371,18 +365,7 @@ void basp_broker_state::learned_new_node_directly(const node_id& nid,
     learned_new_node(nid);
 }
 
-namespace {
-
-struct connection_helper_state {
-  static const char* name;
-};
-
-const char* connection_helper_state::name = "connection_helper";
-
-} // namespace <anonymous>
-
 void basp_broker_state::learned_new_node_indirectly(const node_id& nid) {
-  std::cout << "[bbs] learned new node indirectly" << std::endl;
   CAF_ASSERT(this_context != nullptr);
   CAF_LOG_TRACE(CAF_ARG(nid));
   learned_new_node(nid);
@@ -392,49 +375,6 @@ void basp_broker_state::learned_new_node_indirectly(const node_id& nid) {
   // indirect connection to the routing table; hence, spawning
   // our helper here exactly once and there is no need to track
   // in-flight connection requests
-  auto connection_helper = [=](stateful_actor<connection_helper_state>* helper,
-                               actor s) -> behavior {
-    CAF_LOG_TRACE(CAF_ARG(s));
-    helper->monitor(s);
-    helper->set_down_handler([=](down_msg& dm) {
-      CAF_LOG_TRACE(CAF_ARG(dm));
-      helper->quit(std::move(dm.reason));
-    });
-    return {
-      // this config is send from the remote `ConfigServ`
-      [=](const std::string&, message& msg) {
-        CAF_LOG_TRACE(CAF_ARG(msg));
-        CAF_LOG_DEBUG("received requested config:" << CAF_ARG(msg));
-        // whatever happens, we are done afterwards
-        helper->quit();
-        msg.apply({
-          [&](uint16_t port, network::address_listing& addresses) {
-            auto& mx = system().middleman().backend();
-            for (auto& kvp : addresses)
-              for (auto& addr : kvp.second) {
-                // TODO: might not always be TCP
-                auto hdl = mx.new_tcp_scribe(addr, port);
-                if (hdl) {
-                  // gotcha! send scribe to our BASP broker
-                  // to initiate handshake etc.
-                  CAF_LOG_INFO("connected directly:" << CAF_ARG(addr));
-                  helper->send(s, connect_atom::value, *hdl, port);
-                  return;
-                }
-              }
-            CAF_LOG_INFO("could not connect to node directly:" << CAF_ARG(nid));
-          }
-        });
-      },
-      after(std::chrono::minutes(10)) >> [=] {
-        CAF_LOG_TRACE(CAF_ARG(""));
-        // nothing heard in about 10 minutes... just a call it a day, then
-        CAF_LOG_INFO("aborted direct connection attempt after 10min:"
-                      << CAF_ARG(nid));
-        helper->quit(exit_reason::user_shutdown);
-      }
-    };
-  };
   auto path = instance.tbl().lookup(nid);
   if (!path) {
     CAF_LOG_ERROR("learned_new_node_indirectly called, but no route to nid");
@@ -445,22 +385,28 @@ void basp_broker_state::learned_new_node_indirectly(const node_id& nid) {
     return;
   }
   using namespace detail;
-  auto tmp = system().config().middleman_detach_utility_actors
-             ? system().spawn<detached + hidden>(connection_helper, self)
-             : system().spawn<hidden>(connection_helper, self);
-  system().registry().put(tmp.id(), actor_cast<strong_actor_ptr>(tmp));
-  auto writer = make_callback([](serializer& sink) -> error {
-    auto name_atm = atom("ConfigServ");
-    std::vector<actor_id> stages;
-    auto msg = make_message(get_atom::value, "basp.default-connectivity");
-    return sink(name_atm, stages, msg);
-  });
-  basp::header hdr{basp::message_type::dispatch_message,
-                   basp::header::named_receiver_flag,
-                   0, 0, this_node(), nid, tmp.id(), invalid_actor_id,
-                   visit(seq_num_vis, path->hdl)};
-  instance.write(self->context(), visit(wr_buf_vis, path->hdl), hdr, &writer);
-  instance.flush(*path);
+  auto try_connect = [&](std::string item) {
+    auto tmp = system().config().middleman_detach_utility_actors
+               ? system().spawn<detached + hidden>(connection_helper, self)
+               : system().spawn<hidden>(connection_helper, self);
+    system().registry().put(tmp.id(), actor_cast<strong_actor_ptr>(tmp));
+    auto writer = make_callback([&item](serializer& sink) -> error {
+      auto name_atm = atom("ConfigServ");
+      std::vector<actor_id> stages;
+      auto msg = make_message(get_atom::value, std::move(item));
+      return sink(name_atm, stages, msg);
+    });
+    basp::header hdr{basp::message_type::dispatch_message,
+                     basp::header::named_receiver_flag,
+                     0, 0, this_node(), nid, tmp.id(), invalid_actor_id,
+                     visit(seq_num_vis, path->hdl)};
+    instance.write(self->context(), visit(wr_buf_vis, path->hdl), hdr, &writer);
+    instance.flush(*path);
+  };
+  if (enable_tcp)
+    try_connect("basp.default-connectivity-tcp");
+  if (enable_udp)
+    try_connect("basp.default-connectivity-udp");
 }
 
 void basp_broker_state::purge(connection_handle h) {
@@ -580,21 +526,35 @@ basp_broker::basp_broker(actor_config& cfg)
 
 behavior basp_broker::make_behavior() {
   CAF_LOG_TRACE(CAF_ARG(system().node()));
+  state.enable_tcp = system().config().middleman_enable_tcp;
+  state.enable_udp = system().config().middleman_enable_udp;
   if (system().config().middleman_enable_automatic_connections) {
     CAF_LOG_INFO("enable automatic connections");
     // open a random port and store a record for our peers how to
     // connect to this broker directly in the configuration server
-    auto res = add_tcp_doorman(uint16_t{0});
-    if (res) {
-      auto port = res->second;
-      auto addrs = network::interfaces::list_addresses(false);
-      auto config_server = system().registry().get(atom("ConfigServ"));
-      send(actor_cast<actor>(config_server), put_atom::value,
-           "basp.default-connectivity",
-           make_message(port, std::move(addrs)));
-      state.enable_automatic_connections = true;
+    if (state.enable_tcp) {
+      auto res = add_tcp_doorman(uint16_t{0});
+      if (res) {
+        auto port = res->second;
+        auto addrs = network::interfaces::list_addresses(false);
+        auto config_server = system().registry().get(atom("ConfigServ"));
+        send(actor_cast<actor>(config_server), put_atom::value,
+             "basp.default-connectivity-tcp",
+             make_message(port, std::move(addrs)));
+      }
     }
-    // TODO: Allow default connections for UDP
+    if (state.enable_udp) {
+      auto res = add_udp_dgram_servant(uint16_t{0});
+      if (res) {
+        auto port = res->second;
+        auto addrs = network::interfaces::list_addresses(false);
+        auto config_server = system().registry().get(atom("ConfigServ"));
+        send(actor_cast<actor>(config_server), put_atom::value,
+              "basp.default-connectivity-udp",
+              make_message(port, std::move(addrs)));
+      }
+    }
+    state.enable_automatic_connections = true;
   }
   auto heartbeat_interval = system().config().middleman_heartbeat_interval;
   if (heartbeat_interval > 0) {
@@ -604,7 +564,6 @@ behavior basp_broker::make_behavior() {
   return {
     // received from underlying broker implementation
     [=](new_data_msg& msg) {
-//      std::cout << "[bb] new data" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       state.set_context(msg.handle);
       auto& ctx = *state.this_context;
@@ -626,12 +585,25 @@ behavior basp_broker::make_behavior() {
         ctx.cstate = next;
       }
     },
+    // received from autoconnect broker for UDP communication
+    [=](new_datagram_msg& msg, dgram_servant_ptr ptr, uint16_t port) {
+      CAF_LOG_TRACE(CAF_ARG(msg.handle));
+      auto hdl = ptr->hdl();
+      add_dgram_servant(ptr);
+      auto& ctx = state.ctx_udp[hdl];
+      ctx.hdl = hdl;
+      ctx.remote_port = port;
+      ctx.local_port = local_port(hdl);
+      ctx.requires_ordering = true;
+      ctx.seq_incoming = 0;
+      ctx.seq_outgoing = 1; // already sent the client handshake
+      // TODO: fix buffer size determination
+      configure_datagram_size(hdl, 1500);
+      // Let's not implement this twice
+      send(this, std::move(msg));
+    },
     // received from underlying broker implementation
     [=](new_datagram_msg& msg) {
-//      std::cout << "[bb] received `new_datagram_msg` on port "
-//                << local_port(msg.handle) << " from {"
-//                << msg.handle.id() << "}" << std::endl;
-//      std::cout << "[bb] new datagram" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       state.set_context(msg.handle);
       auto& ctx = *state.this_context;
@@ -656,7 +628,6 @@ behavior basp_broker::make_behavior() {
     [=](forward_atom, strong_actor_ptr& src,
         const std::vector<strong_actor_ptr>& fwd_stack,
         strong_actor_ptr& dest, message_id mid, const message& msg) {
-      std::cout << "[bb] forward" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(src) << CAF_ARG(dest)
                     << CAF_ARG(mid) << CAF_ARG(msg));
       if (!dest || system().node() == dest->node()) {
@@ -676,7 +647,6 @@ behavior basp_broker::make_behavior() {
     // received from some system calls like whereis
     [=](forward_atom, const node_id& dest_node, atom_value dest_name,
         const message& msg) -> result<message> {
-      std::cout << "[bb] forward" << std::endl;
       auto cme = current_mailbox_element();
       if (cme == nullptr)
         return sec::invalid_argument;
@@ -708,7 +678,6 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](const new_connection_msg& msg) {
-      std::cout << "[bb] new connection" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       auto& bi = state.instance;
       bi.write_server_handshake(context(), wr_buf(msg.handle),
@@ -718,7 +687,6 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](const connection_closed_msg& msg) {
-      std::cout << "[bb] connection closed" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       // TODO: currently we assume a node has gone offline once we lose
       //       a connection, we also could try to reach this node via other
@@ -750,7 +718,6 @@ behavior basp_broker::make_behavior() {
     },
     // received from underlying broker implementation
     [=](const acceptor_closed_msg& msg) {
-      std::cout << "[bb] acceptor closed" << std::endl;
       CAF_LOG_TRACE("");
       auto port = local_port(msg.handle);
       state.instance.remove_published_actor(port);
@@ -758,7 +725,6 @@ behavior basp_broker::make_behavior() {
     // received from middleman actor
     [=](publish_atom, doorman_ptr& ptr, uint16_t port,
         const strong_actor_ptr& whom, std::set<std::string>& sigs) {
-      std::cout << "[bb] publish tcp" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
                     << CAF_ARG(whom) << CAF_ARG(sigs));
       CAF_ASSERT(ptr != nullptr);
@@ -769,7 +735,6 @@ behavior basp_broker::make_behavior() {
     },
     // received from middleman actor (delegated)
     [=](connect_atom, scribe_ptr& ptr, uint16_t port) {
-      std::cout << "[bb] connect" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port));
       CAF_ASSERT(ptr != nullptr);
       auto rp = make_response_promise();
@@ -786,24 +751,18 @@ behavior basp_broker::make_behavior() {
     },
     [=](publish_udp_atom, dgram_servant_ptr& ptr, uint16_t port,
         const strong_actor_ptr& whom, std::set<std::string>& sigs) {
-//      std::cout << "BASP broker received `publish_udp` atom for port "
-//                << port << std::endl;
-      std::cout << "[bb] publish udp" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
                     << CAF_ARG(whom) << CAF_ARG(sigs));
       CAF_ASSERT(ptr != nullptr);
       add_dgram_servant(std::move(ptr));
       if (whom)
         system().registry().put(whom->id(), whom);
-      // TODO: should the actor be added it whom is not valid? (same for tcp)
+      // TODO: should the actor be added if whom is not valid? (same for tcp)
       state.instance.add_published_actor(port, whom, std::move(sigs));
     },
     // received from middleman actor (delegated)
     [=](contact_atom, dgram_servant_ptr& ptr, uint16_t port) {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port));
-//      std::cout << "BASP broker received `contact` atom for port "
-//                << port << std::endl;
-      std::cout << "[bb] contact" << std::endl;
       auto rp = make_response_promise();
       auto hdl = ptr->hdl();
       add_dgram_servant(ptr);
@@ -821,26 +780,21 @@ behavior basp_broker::make_behavior() {
       flush(hdl);
       // TODO: fix buffer size determination
       configure_datagram_size(hdl, 1500);
-      // TODO: set timeout
     },
     // received from underlying broker implementation
     [=](const dgram_servant_closed_msg& msg) {
-      std::cout << "[bb] dgram servant closed" << std::endl;
       CAF_LOG_TRACE("");
       auto port = local_port(msg.handle);
       state.instance.remove_published_actor(port);
     },
     [=](delete_atom, const node_id& nid, actor_id aid) {
-      std::cout << "[bb] delete" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(nid) << ", " << CAF_ARG(aid));
       state.proxies().erase(nid, aid);
     },
     [=](unpublish_atom, const actor_addr& whom, uint16_t port) -> result<void> {
-      std::cout << "[bb] unpublish" << std::endl;
       CAF_LOG_TRACE(CAF_ARG(whom) << CAF_ARG(port));
       auto cb = make_callback(
         [&](const strong_actor_ptr&, uint16_t x) -> error {
-          std::cout << "[ua] callback called with " << x << std::endl;
           close(hdl_by_port(x));
           return none;
         }
@@ -850,7 +804,6 @@ behavior basp_broker::make_behavior() {
       return unit;
     },
     [=](close_atom, uint16_t port) -> result<void> {
-      std::cout << "[bb] close" << std::endl;
       if (port == 0)
         return sec::cannot_close_invalid_port;
       // it is well-defined behavior to not have an actor published here,
@@ -863,7 +816,6 @@ behavior basp_broker::make_behavior() {
     },
     [=](get_atom, const node_id& x)
     -> std::tuple<node_id, std::string, uint16_t> {
-      std::cout << "[bb] get" << std::endl;
       std::string addr;
       uint16_t port = 0;
       auto hdl = state.instance.tbl().lookup_direct(x);

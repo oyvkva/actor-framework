@@ -113,7 +113,9 @@ enum class sec : uint8_t {
   /// A function view was called without assigning an actor first.
   bad_function_call = 40,
   /// URI with an unsupported protocol encountered
-  unsupported_protocol
+  unsupported_protocol,
+  /// Feature is disabled in the actor system config
+  feature_disabled,
 };
 
 /// @relates sec
