@@ -34,7 +34,7 @@ namespace network {
 class test_multiplexer : public multiplexer {
 private:
   struct dgram_servant_data;
-  
+
   using dgram_data_ptr = std::shared_ptr<dgram_servant_data>;
 
 public:

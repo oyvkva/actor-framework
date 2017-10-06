@@ -34,6 +34,7 @@
 #include "caf/io/system_messages.hpp"
 #include "caf/io/connection_handle.hpp"
 
+#include "caf/io/network/ip_endpoint.hpp"
 #include "caf/io/network/dgram_manager.hpp"
 #include "caf/io/network/native_socket.hpp"
 #include "caf/io/network/stream_manager.hpp"

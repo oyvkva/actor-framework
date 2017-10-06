@@ -46,7 +46,7 @@
 # include <sys/socket.h>
 # include <netinet/in.h>
 # include <netinet/tcp.h>
-#include <utility>
+# include <utility>
 #endif
 
 // TODO: delete me
@@ -483,7 +483,7 @@ namespace network {
             CAF_CRITICAL("poll() failed");
           }
         }
-        continue; // rince and repeat
+        continue; // rinse and repeat
       }
       if (presult == 0)
         return false;
@@ -509,9 +509,8 @@ namespace network {
       }
       CAF_LOG_DEBUG(CAF_ARG(events_.size()));
       poll_res.clear();
-      for (auto& me : events_) {
+      for (auto& me : events_)
         handle(me);
-      }
       events_.clear();
       return true;
     }
@@ -949,18 +948,11 @@ expected<doorman_ptr> default_multiplexer::new_tcp_doorman(uint16_t port,
   return std::move(fd.error());
 }
 
-dgram_servant_ptr
-new_dgram_servant_with_handler(std::shared_ptr<dgram_handler_impl<udp_policy>> ptr,
-                               int64_t id) {
-  CAF_LOG_TRACE(CAF_ARG(id));
-  return make_counted<dgram_servant_impl>(ptr, id);
-}
-
 dgram_servant_ptr default_multiplexer::new_dgram_servant(native_socket fd) {
   CAF_LOG_TRACE(CAF_ARG(fd));
   CAF_ASSERT(fd != network::invalid_native_socket);
   using handler_type = dgram_handler_impl<udp_policy>;
-  return new_dgram_servant_with_handler(
+  return make_counted<dgram_servant_impl>(
     std::make_shared<handler_type>(*this, fd),
     next_endpoint_id()
   );
@@ -971,11 +963,6 @@ default_multiplexer::new_dgram_servant_for_endpoint(native_socket fd,
                                                     ip_endpoint& ep) {
   CAF_LOG_TRACE(CAF_ARG(ep));
   auto ds = new_dgram_servant(fd);
-  // TODO: access the event handler pass it the ip_endpoint instead?
-  // and then call add_endpoint() without arguments to ...
-  // Maybe, this should be a function of the event_handler, like
-  // handler->add_servant_for_ednpoint(ds, ep)
-  // and remove the add_endpoint call from the servant
   ds->add_endpoint(ep);
   return ds;
 };
@@ -1235,11 +1222,6 @@ dgram_handler::dgram_handler(default_multiplexer& backend_ref, native_socket soc
     dgram_size_(1500), // TODO: choose adequate size
     ack_writes_(false),
     writing_(false) {
-  std::mt19937 rng;
-  rng.seed(std::random_device()());
-  std::uniform_int_distribution<std::mt19937::result_type> dist(1000,10000);
-  unique_id_ = dist(rng);
-//  std::cout << " ### created <" << unique_id_ << "> ###" << std::endl;
   // nop
 }
 
@@ -1254,8 +1236,8 @@ void dgram_handler::start(dgram_manager* mgr) {
 }
 
 void dgram_handler::activate(dgram_manager* mgr) {
-  if (!reader_) {
-    reader_.reset(mgr);
+  if (!commander_) {
+    commander_.reset(mgr);
     event_handler::activate();
     prepare_next_read();
   }
@@ -1283,38 +1265,29 @@ void dgram_handler::flush(id_type id, ip_endpoint& ep,
   if (!wr_offline_buf_.empty() && !writing_) {
     backend().add(operation::write, fd(), this);
     auto itr = from_id_.find(id);
-    if (itr == from_id_.end() || !itr->second->writer ) {
+    if (itr == from_id_.end() || !itr->second->deputy) {
       add_endpoint(id, ep, mgr);
+      // TODO: figure this out
       throw std::runtime_error("Looks like this does actually happen!");
-    } /* else {
-      std::cout << "[f] writer still available." << std::endl;
-    } */
+    }
     writing_ = true;
     prepare_next_write();
-  } /*else {
-    std::cout << "[f] !empty = " << std::boolalpha
-              << !wr_offline_buf_.empty()
-              << ", !writing = " << std::boolalpha << !writing_ << std::endl;
-  } */
+  }
 }
 
-// TODO: should this be a reference because we can't move endpoints?
 void dgram_handler::add_endpoint(id_type id, ip_endpoint& ep,
                                  const manager_ptr mgr) {
   auto itr = from_ep_.find(ep);
   if (itr == from_ep_.end()) {
-//    std::cout << "[ae] <" << unique_id_ << "> got new endpoint {"
-//              << id << "} handles " << to_string(ep) << std::endl;
     auto data = make_counted<endpoint_data>(ep, mgr);
     from_ep_[ep] = data;
     from_id_[id] = data;
-  } else if (!itr->second->writer) {
-    std::cout << "[ae] assigning manager to existing data" << std::endl;
-    itr->second->writer = mgr;
-    from_id_[id]->writer = mgr;
+  } else if (!itr->second->deputy) {
+    itr->second->deputy = mgr;
+    from_id_[id]->deputy = mgr;
   } else {
-    std::cout << "[ae] <" << unique_id_ << "> already knows "
-              << to_string(ep) << "!" << std::endl;
+    CAF_LOG_ERROR("cannot assign a second servant to the enpoint "
+                  << to_string(ep));
     abort();
   }
 }
@@ -1337,18 +1310,10 @@ void dgram_handler::stop_reading() {
 
 void dgram_handler::removed_from_loop(operation op) {
   switch (op) {
-    case operation::read: reader_.reset(); break;
+    case operation::read: commander_.reset(); break;
     case operation::write:
-//      std::cout << "[rfl] <" << unique_id_ << "> Resetting writers" << std::endl;
 //      std::cout << "[rfl] IGNORED" << std::endl;
-      // TODO: maybe save readers and writers separately
-      // or change how the related state is handled ... or something
-//      from_ep_.clear();
-//      from_id_.clear();
-//      for (auto& mngr : from_ep_) {
-//        std::cout << "[rfl] > " << to_string(mngr.first) << std::endl;
-//        mngr.second->writer.reset();
-//      }
+//      TODO: hm?
       break;
     case operation::propagate_error: break;
   };
@@ -1359,7 +1324,8 @@ size_t dgram_handler::max_consecutive_reads() {
 }
 
 void dgram_handler::prepare_next_read() {
-  CAF_LOG_TRACE(CAF_ARG(wr_buf_.second.size()) << CAF_ARG(wr_offline_buf_.size()));
+  CAF_LOG_TRACE(CAF_ARG(wr_buf_.second.size())
+                << CAF_ARG(wr_offline_buf_.size()));
   rd_buf_.resize(dgram_size_);
 }
 
@@ -1367,22 +1333,17 @@ void dgram_handler::prepare_next_write() {
   CAF_LOG_TRACE(CAF_ARG(wr_offline_buf_.size()));
   wr_buf_.second.clear();
   if (wr_offline_buf_.empty()) {
-//    std::cout << "[pnw] got nothing to write" << std::endl;
     writing_ = false;
     backend().del(operation::write, fd(), this);
   } else {
-//    std::cout << "[pnw] writing next of " << wr_offline_buf_.size()
-//              << " jobs" << std::endl;
     wr_buf_.swap(wr_offline_buf_.front());
     wr_offline_buf_.pop_front();
-//    std::cout << "[pnw] {" << wr_buf_.first << "} will write "
-//              << wr_buf_.second.size() << " bytes" << std::endl;
   }
 }
 
 dgram_handler::endpoint_data::endpoint_data(ip_endpoint& ep,
                                             manager_ptr ptr)
-  : endpoint(ep), writer(ptr) {
+  : endpoint(ep), deputy(ptr) {
   // nop
 }
 
@@ -1846,7 +1807,7 @@ dgram_servant_impl::dgram_servant_impl(std::shared_ptr<handler_type> ptr,
   // nop
 }
 
-bool dgram_servant_impl::new_endpoint(ip_endpoint& ep, std::vector<char>& buf) {
+bool dgram_servant_impl::new_endpoint(std::vector<char>& buf) {
 //      std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
 //                << to_string(ep) << std::endl;
   CAF_LOG_TRACE("");
@@ -1858,24 +1819,8 @@ bool dgram_servant_impl::new_endpoint(ip_endpoint& ep, std::vector<char>& buf) {
      return false;
   auto& dm = handler_ptr_->backend();
   auto id = dm.next_endpoint_id();
-  auto sptr = new_dgram_servant_with_handler(handler_ptr_, id);
-  sptr->add_endpoint(ep);
-  parent()->add_dgram_servant(sptr);
-  return sptr->consume(&dm, buf);
-}
-
-// TODO: before calling this, the caller creates a new id and registers
-//       the related ip_endpoint with the id at the event handler.
-bool dgram_servant_impl::new_endpoint(int64_t id, std::vector<char>& buf) {
-  CAF_LOG_TRACE("");
-  if (detached())
-     // we are already disconnected from the broker while the multiplexer
-     // did not yet remove the socket, this can happen if an I/O event
-     // causes the broker to call close_all() while the pollset contained
-     // further activities for the broker
-     return false;
-  auto& dm = handler_ptr_->backend();
-  auto sptr = new_dgram_servant_with_handler(handler_ptr_, id);
+  auto sptr = make_counted<dgram_servant_impl>(handler_ptr_, id);
+  sptr->add_endpoint(handler_ptr_->last_sender());
   parent()->add_dgram_servant(sptr);
   return sptr->consume(&dm, buf);
 }
@@ -1937,13 +1882,6 @@ uint16_t dgram_servant_impl::local_port() const {
 void dgram_servant_impl::add_endpoint(ip_endpoint& ep) {
   ep_ = ep;
   handler_ptr_->add_endpoint(hdl().id(), ep, this);
-}
-
-void dgram_servant_impl::add_endpoint() {
-  // TODO: implement this.
-  // Should remove endpoints from servants, only keeping the
-  // related data in the associated event handler
-  // handler_ptr_->add_endpoint(hdl().id(), this);
 }
 
 void dgram_servant_impl::remove_endpoint() {

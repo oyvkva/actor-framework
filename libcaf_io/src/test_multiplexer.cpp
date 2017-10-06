@@ -48,8 +48,9 @@ test_multiplexer::doorman_data::doorman_data()
   // nop
 }
 
-test_multiplexer::dgram_servant_data::dgram_servant_data(shared_job_buffer_type input,
-                                                         shared_job_buffer_type output)
+test_multiplexer::dgram_servant_data::
+  dgram_servant_data(shared_job_buffer_type input,
+                     shared_job_buffer_type output)
     : vn_buf_ptr(std::move(input)),
       wr_buf_ptr(std::move(output)),
       vn_buf(*vn_buf_ptr),
@@ -298,7 +299,12 @@ test_multiplexer::new_remote_udp_endpoint(const std::string& host,
   }
   auto ptr = new_dgram_servant(hdl, port);
   // Set state in the struct to enable direct communication?
-  ptr->add_endpoint();
+  { // lifetime scope of guard
+    guard_type guard{mx_};
+    auto data = dgram_data_[hdl];
+    data->servants[hdl.id()] = ptr;
+    local_port(hdl) = data->local_port;
+  }
   return ptr;
 }
 
@@ -345,45 +351,28 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       : dgram_servant(dh), mpx_(mpx), data_(data) {
       // nop
     }
-    bool new_endpoint(ip_endpoint&, std::vector<char>&) override {
-      // auto ep = mpx_->dgram_data_[hdl()].rd_buf.first;
-      // dgram_handle ch;
-      // { // Try to get a connection handle of a pending connect.
-      //   guard_type guard{mpx_->mx_};
-      //   auto& pc = mpx_->pending_endpoints();
-      //   auto i = pc.find(ep);
-      //   if (i == pc.end())
-      //     return false;
-      //   ch = i->second;
-      //   pc.erase(i);
-      // }
-      // // TODO: share access to dgram_data_?
-      // auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
-      // servant->add_endpoint(addr);
-      // mpx_->servants(hdl())[ep] = servant;
-      // parent()->add_dgram_servant(servant);
-      // return servant->consume(mpx_, buf);
-      abort();
-    }
-    bool new_endpoint(int64_t id, std::vector<char>& buf) override {
+    bool new_endpoint(std::vector<char>& buf) override {
+      auto ep = mpx_->dgram_data_[hdl()]->rd_buf.first;
       dgram_handle ch;
       { // Try to get a connection handle of a pending connect.
         guard_type guard{mpx_->mx_};
         auto& pc = mpx_->pending_endpoints();
-        auto i = pc.find(id);
+        auto i = pc.find(ep);
         if (i == pc.end())
           return false;
         ch = i->second;
         pc.erase(i);
       }
-      CAF_LOG_INFO("new endpoint" << ch << "on servant" << hdl());
-      auto& data = mpx_->dgram_data_[hdl()];
-      // auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
-      auto servant = mpx_->new_dgram_servant_with_data(ch, data);
-      servant->add_endpoint();
-      // mpx_->servants(hdl())[id] = servant;
+      auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
+      { // lifetime scope of guard
+        guard_type guard{mpx_->mx_};
+        data_->servants[ch.id()] = servant;
+        mpx_->local_port(ch) = data_->local_port;
+      }
+      mpx_->servants(hdl())[ep] = servant;
       parent()->add_dgram_servant(servant);
       return servant->consume(mpx_, buf);
+      abort();
     }
     void configure_datagram_size(size_t buf_size) override {
       mpx_->datagram_size(hdl()) = buf_size;
@@ -427,17 +416,9 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       mpx_->passive_mode(hdl()) = true;
     }
     void add_endpoint(ip_endpoint&) override {
+      std::cerr << "dgram_servant impl::add_endpoint called with ip_endpoint"
+                << std::endl;
       abort();
-    }
-    void add_endpoint() override {
-      // adapt endpoint from parent
-      // TODO: should this be more explicit?
-      // i.e., passing adapted parameters into the function
-      { // lifetime scope of guard
-        guard_type guard{mpx_->mx_};
-        data_->servants[hdl().id()] = this;
-        mpx_->local_port(hdl()) = data_->local_port;
-      }
     }
     void remove_endpoint() override {
       { // lifetime scope of guard
@@ -950,7 +931,7 @@ bool test_multiplexer::read_data(dgram_handle hdl) {
   auto& delegate = dd->servants[dd->rd_buf.first];
   // TODO: failure should shutdown all related servants
   if (delegate == nullptr) {
-    if (!dd->ptr->new_endpoint(dd->rd_buf.first, dd->rd_buf.second))
+    if (!dd->ptr->new_endpoint(dd->rd_buf.second))
       passive_mode(hdl) = true;
   } else {
     if (!delegate->consume(this, dd->rd_buf.second))

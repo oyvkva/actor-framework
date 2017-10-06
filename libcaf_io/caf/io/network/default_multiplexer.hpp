@@ -564,7 +564,8 @@ protected:
                 return;
               collected_ += rb;
               if (collected_ >= read_threshold_) {
-                auto res = reader_->consume(&backend(), rd_buf_.data(), collected_);
+                auto res = reader_->consume(&backend(), rd_buf_.data(),
+                                            collected_);
                 prepare_next_read();
                 if (!res) {
                   passivate();
@@ -723,11 +724,6 @@ private:
 };
 
 class dgram_handler : public event_handler {
-// TODO:
-// - Clean up after timeout.
-// - Use trie for IP to ID lookup?
-// - On incoming message, lookup the related dgram servant
-//   and pass its handle upward.
 public:
   /// A smart pointer to a stream manager.
   using manager_ptr = intrusive_ptr<dgram_manager>;
@@ -800,11 +796,13 @@ public:
 
   void remove_endpoint(id_type id);
 
+  inline ip_endpoint& last_sender() {
+    return sender_;
+  }
+
 protected:
   template <class Policy>
   void handle_event_impl(io::network::operation op, Policy& policy) {
-//    std::cout << "[hd] <" << unique_id_ << "> processing " << to_string(op)
-//              << " event" << std::endl;
     CAF_LOG_TRACE(CAF_ARG(op));
     auto mcr = max_consecutive_reads();
     switch (op) {
@@ -815,7 +813,7 @@ protected:
         for (size_t i = 0; i < mcr; ++i) {
           if (!policy.read_datagram(rb, fd(), rd_buf_.data(), rd_buf_.size(),
                                     sender_)) {
-            reader_->io_failure(&backend(), operation::read);
+            commander_->io_failure(&backend(), operation::read);
             passivate();
             return;
           }
@@ -823,28 +821,17 @@ protected:
             rd_buf_.resize(rb);
             // TODO: sent as the new endpoint
             auto itr = from_ep_.find(sender_);
-//            std::cout << "[he] received " << rb << " bytes from "
-//                      << to_string(sender_) << std::endl;
-//            std::cout << "[he] known endpoints: " << std::endl;
-//            if (from_ep_.empty())
-//              std::cout << " > NONE" << std::endl;
-//            else
-//              for (auto& elem : from_ep_)
-//                std::cout << " > " << to_string(elem.first) << std::endl;
             bool consumed = false;
             if (itr == from_ep_.end()) {
-              consumed = reader_->new_endpoint(sender_, rd_buf_);
+              consumed = commander_->new_endpoint(rd_buf_);
             } else {
-              if (!itr->second->writer) {
+              if (!itr->second->deputy) {
                 std::cout << "Something went wrong, servant for '"
                           << to_string(sender_) << "' is invalid" << std::endl;
                 abort();
               }
-              consumed = itr->second->writer->consume(&backend(), rd_buf_);
+              consumed = itr->second->deputy->consume(&backend(), rd_buf_);
             }
-//            auto consumed = (itr == from_ep_.end())
-//              ? reader_->new_endpoint(sender_, rd_buf_)
-//              : itr->second->writer->consume(&backend(), rd_buf_);
             bytes_read_ = rb;
             prepare_next_read();
             if (!consumed) {
@@ -875,24 +862,24 @@ protected:
         std::vector<char>& buf = wr_buf_.second;
         if (!policy.write_datagram(wb, fd(), buf.data(),
                                    buf.size(), ctx->endpoint)) {
-          ctx->writer->io_failure(&backend(), operation::write);
+          ctx->deputy->io_failure(&backend(), operation::write);
           backend().del(operation::write, fd(), this);
         } else if (wb > 0) {
           CAF_ASSERT(wb == wr_buf_.second.size());
           if (ack_writes_)
-            ctx->writer->datagram_sent(&backend(), wb);
+            ctx->deputy->datagram_sent(&backend(), wb);
           prepare_next_write();
         } else {
-          if (ctx->writer)
-            ctx->writer->io_failure(&backend(), operation::write);
+          if (ctx->deputy)
+            ctx->deputy->io_failure(&backend(), operation::write);
         }
         break;
       }
       case operation::propagate_error:
-        if (reader_)
-          reader_->io_failure(&backend(), operation::read);
+        if (commander_)
+          commander_->io_failure(&backend(), operation::read);
         for (auto& mngr : from_ep_)
-          mngr.second->writer->io_failure(&backend(), operation::write);
+          mngr.second->deputy->io_failure(&backend(), operation::write);
         // backend will delete this handler anyway,
         // no need to call backend().del() here
     }
@@ -902,7 +889,7 @@ private:
   struct endpoint_data : public ref_counted {
     endpoint_data(ip_endpoint& ep, manager_ptr ptr);
     ip_endpoint endpoint;
-    manager_ptr writer;
+    manager_ptr deputy;
   };
 
   size_t max_consecutive_reads();
@@ -915,7 +902,7 @@ private:
   size_t dgram_size_;
   buffer_type rd_buf_;
   size_t bytes_read_;
-  manager_ptr reader_;
+  manager_ptr commander_;
 
   std::unordered_map<ip_endpoint, intrusive_ptr<endpoint_data>> from_ep_;
   std::unordered_map<id_type, intrusive_ptr<endpoint_data>> from_id_;
@@ -928,9 +915,6 @@ private:
   bool writing_;
   std::deque<job_type> wr_offline_buf_;
   job_type wr_buf_;
-
-  // debugging
-  uint32_t unique_id_;
 };
 
 /// A concrete dgram_handler with a technology-dependent policy.
@@ -1024,9 +1008,7 @@ class dgram_servant_impl : public dgram_servant {
 public:
   dgram_servant_impl(std::shared_ptr<handler_type> ptr, int64_t id);
 
-  bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) override;
-
-  bool new_endpoint(int64_t id, std::vector<char>& buf) override;
+  bool new_endpoint(std::vector<char>& buf) override;
 
   void configure_datagram_size(size_t buf_size) override;
 
@@ -1048,8 +1030,6 @@ public:
 
   void add_endpoint(ip_endpoint& ep) override;
 
-  void add_endpoint() override;
-
   void remove_endpoint() override;
 
   void launch() override;
@@ -1060,8 +1040,6 @@ public:
 
 private:
   bool launched_;
-  // TODO: endpoint might be copied rather often ... needs more efficient
-  //       handling, maybe keep it on the heap and use a shared pointer
   ip_endpoint ep_;
   std::shared_ptr<handler_type> handler_ptr_;
 };

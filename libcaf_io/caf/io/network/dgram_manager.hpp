@@ -21,7 +21,6 @@
 #define CAF_IO_NETWORK_DGRAM_MANAGER_HPP
 
 #include "caf/io/network/manager.hpp"
-#include "caf/io/network/ip_endpoint.hpp"
 
 namespace caf {
 namespace io {
@@ -41,12 +40,10 @@ public:
   virtual void datagram_sent(execution_unit*, size_t) = 0;
 
   /// Called by the underlying I/O device to indicate that a new remote
-  /// endpoint has been detected.
+  /// endpoint has been detected, passing in the received datagram.
   /// @returns `true` if the manager accepts further enpoints,
   ///          otherwise `false`.
-  virtual bool new_endpoint(ip_endpoint& ep, std::vector<char>& buf) = 0;
-
-  virtual bool new_endpoint(int64_t id, std::vector<char>& buf) = 0;
+  virtual bool new_endpoint(std::vector<char>& buf) = 0;
 };
 
 } // namespace network
