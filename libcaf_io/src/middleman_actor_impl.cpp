@@ -159,8 +159,8 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       return put_udp(port, whom, sigs, addr.c_str(), reuse);
     },
     [=](contact_atom, std::string& hostname, uint16_t port) -> get_res {
-      std::cout << "[mm] contacting UDP endpoint on " << hostname << ":"
-                << port << std::endl;
+      //std::cout << "[mm] contacting UDP endpoint on " << hostname << ":"
+                //<< port << std::endl;
       CAF_LOG_TRACE(CAF_ARG(hostname) << CAF_ARG(port));
       if (!system().config().middleman_enable_udp)
         return make_error(sec::feature_disabled);
@@ -192,8 +192,8 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
       request(broker_, infinite, contact_atom::value, std::move(ptr), port)
         .then(
           [=](node_id& nid, strong_actor_ptr& addr, mpi_set& sigs) {
-//            std::cout << "[mm] contact answer is " << to_string(nid) << ", "
-//                      << to_string(addr) << std::endl;
+            //std::cout << "[mm] contact answer is " << to_string(nid) << ", "
+                      //<< to_string(addr) << std::endl;
             auto i = pending_.find(key);
             if (i == pending_.end())
               return;
@@ -208,7 +208,7 @@ auto middleman_actor_impl::make_behavior() -> behavior_type {
             pending_.erase(i);
           },
           [=](error& err) {
-//            std::cout << "[mm] contact failed " << to_string(err) << std::endl;
+            std::cout << "[mm] contact failed " << to_string(err) << std::endl;
             auto i = pending_.find(key);
             if (i == pending_.end())
               return;

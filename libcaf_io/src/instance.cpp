@@ -307,19 +307,19 @@ bool instance::handle(execution_unit* ctx, new_datagram_msg& dm,
   }
   */
   if (ep.hdr.sequence_number > ep.seq_incoming) {
-    std::cout << "[h] sequence number to high for "
-              << to_string(ep.hdr.operation)
-              << " (" << ep.hdr.sequence_number << "/" << ep.seq_incoming << ")"
-              << std::endl;
+    //std::cout << "[h] sequence number to high for "
+              //<< to_string(ep.hdr.operation)
+              //<< " (" << ep.hdr.sequence_number << "/" << ep.seq_incoming << ")"
+              //<< std::endl;
     // Message arrived "early", add to pending messages
     auto s = ep.hdr.sequence_number;
     callee_.add_pending(s, ep, std::move(ep.hdr), std::move(pl_buf));
     return true;
   } else if (ep.hdr.sequence_number < ep.seq_incoming) {
-    std::cout << "[h] sequence number to low for "
-              << to_string(ep.hdr.operation)
-              << " (" << ep.hdr.sequence_number << "/" << ep.seq_incoming << ")"
-              << std::endl;
+    //std::cout << "[h] sequence number to low for "
+              //<< to_string(ep.hdr.operation)
+              //<< " (" << ep.hdr.sequence_number << "/" << ep.seq_incoming << ")"
+              //<< std::endl;
     // Message arrived late, drop it!
     CAF_LOG_DEBUG("dropping msg " << CAF_ARG(dm));
     return true;
@@ -327,9 +327,10 @@ bool instance::handle(execution_unit* ctx, new_datagram_msg& dm,
   // Message arrived as expected
   ep.seq_incoming += 1;
   // TODO: Add optional reliability here (send acks, ...)
-  // TODO: if-statement below is jsut copy-paste from TCP, should be extracted
+  // TODO: if-statement below is just copy-paste from TCP, should be extracted
   //       into a function!
-  if (!is_handshake(ep.hdr) && !is_heartbeat(ep.hdr) && ep.hdr.dest_node != this_node_) {
+  if (!is_handshake(ep.hdr) && !is_heartbeat(ep.hdr)
+      && ep.hdr.dest_node != this_node_) {
     CAF_LOG_DEBUG("forward message");
     auto path = lookup(ep.hdr.dest_node);
     if (path) {

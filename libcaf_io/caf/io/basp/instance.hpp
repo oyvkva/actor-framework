@@ -255,7 +255,7 @@ public:
   bool handle(execution_unit* ctx, const Handle& hdl, header& hdr,
               std::vector<char>* payload, bool tcp_based,
               optional<endpoint_context&> ep, optional<uint16_t> port) {
-    std::cout << "[h] " << to_string(hdr.operation) << std::endl;
+    //std::cout << "[h] " << to_string(hdr.operation) << std::endl;
     // function object for checking payload validity
     auto payload_valid = [&]() -> bool {
       return payload != nullptr && payload->size() == hdr.payload_len;
