@@ -282,8 +282,9 @@ public:
     // send the client handshake and receive the server handshake
     // and a dispatch_message as answers
     auto hdl = n.endpoint;
-    mpx_->add_pending_endpoint(n.endpoint.id(), hdl);
-    mock(src, n.endpoint.id(),
+    mpx_->add_pending_endpoint(src, hdl);
+    CAF_MESSAGE("Send client handshake");
+    mock(src, hdl,
          {basp::message_type::client_handshake, 0, 0, 0,
           n.id, this_node(),
           invalid_actor_id, invalid_actor_id}, std::string{})
@@ -444,14 +445,26 @@ public:
   };
 
   template <class... Ts>
-  mock_t mock(dgram_handle hdl, int64_t ep, basp::header hdr,
+  mock_t mock(dgram_handle hdl, basp::header hdr,
               const Ts&... xs) {
     buffer buf;
     to_buf(buf, hdr, nullptr, xs...);
     CAF_MESSAGE("virtually send " << to_string(hdr.operation)
                 << " with " << (buf.size() - basp::header_size)
                 << " bytes payload");
-    mpx()->virtual_send(hdl, ep, buf);
+    mpx()->virtual_send(hdl, hdl.id(), buf);
+    return {this};
+  }
+
+  template <class... Ts>
+  mock_t mock(dgram_handle hdl, dgram_handle ep, basp::header hdr,
+              const Ts&... xs) {
+    buffer buf;
+    to_buf(buf, hdr, nullptr, xs...);
+    CAF_MESSAGE("virtually send " << to_string(hdr.operation)
+                << " with " << (buf.size() - basp::header_size)
+                << " bytes payload");
+    mpx()->virtual_send(hdl, ep.id(), buf);
     return {this};
   }
 
@@ -595,7 +608,7 @@ CAF_TEST(client_handshake_and_dispatch_udp) {
   establish_communication(jupiter());
   CAF_MESSAGE("send dispatch message");
   // send a message via `dispatch` from node 0 on endpoint 1
-  mock(endpoint_handle(), 2,
+  mock(endpoint_handle(), jupiter().endpoint,
        {basp::message_type::dispatch_message, 0, 0, 0,
         jupiter().id, this_node(), jupiter().dummy_actor->id(), self()->id(),
         1}, // increment sequence number
@@ -637,7 +650,7 @@ CAF_TEST(message_forwarding_udp) {
   CAF_MESSAGE("send dispatch message to ... ");
   auto msg = make_message(1, 2, 3);
   // send a message from node 0 to node 1, forwarded by this node
-  mock(endpoint_handle(), jupiter().endpoint.id(),
+  mock(endpoint_handle(), jupiter().endpoint,
        {basp::message_type::dispatch_message, 0, 0, 0,
         jupiter().id, mars().id,
         invalid_actor_id, mars().dummy_actor->id(),
@@ -680,7 +693,7 @@ CAF_TEST(remote_actor_and_send_udp) {
            basp::message_type::client_handshake, no_flags, 1u,
            no_operation_data, this_node(), node_id(),
            invalid_actor_id, invalid_actor_id, std::string{});
-  mock(jupiter().endpoint, 2, // TODO: Shouldn't this be 4242?
+  mock(jupiter().endpoint,
        {basp::message_type::server_handshake, 0, 0, basp::version,
         jupiter().id, none,
         jupiter().dummy_actor->id(), invalid_actor_id,
@@ -732,7 +745,7 @@ CAF_TEST(remote_actor_and_send_udp) {
            make_message(42));
   auto msg = make_message("hi there!");
   CAF_MESSAGE("send message via BASP (from proxy)");
-  mock(jupiter().endpoint, 2, // TODO: Shouldn't this be 4242?
+  mock(jupiter().endpoint,
        {basp::message_type::dispatch_message, 0, 0, 0,
         jupiter().id, this_node(),
         jupiter().dummy_actor->id(), self()->id(),
@@ -770,7 +783,7 @@ CAF_TEST(actor_serialize_and_deserialize_udp) {
   registry()->put(testee->id(), actor_cast<strong_actor_ptr>(testee));
   CAF_MESSAGE("send message via BASP (from proxy)");
   auto msg = make_message(actor_cast<actor_addr>(prx));
-  mock(endpoint_handle(), jupiter().endpoint.id(),
+  mock(endpoint_handle(), jupiter().endpoint,
        {basp::message_type::dispatch_message, 0, 0, 0,
         prx->node(), this_node(),
         prx->id(), testee->id(),
@@ -800,7 +813,7 @@ CAF_TEST(indirect_connections_udp) {
   CAF_MESSAGE("connect to Mars");
   establish_communication(mars(), dx, self()->id());
   CAF_MESSAGE("actor from Jupiter sends a message to us via Mars");
-  auto mx = mock(dx, mars().endpoint.id(),
+  auto mx = mock(dx, mars().endpoint,
                  {basp::message_type::dispatch_message, 0, 0, 0,
                   jupiter().id, this_node(),
                   jupiter().dummy_actor->id(), self()->id(),
@@ -860,7 +873,7 @@ CAF_TEST(out_of_order_delivery_udp) {
            basp::message_type::client_handshake, no_flags, 1u,
            no_operation_data, this_node(), node_id(),
            invalid_actor_id, invalid_actor_id, std::string{});
-  mock(jupiter().endpoint, jupiter().endpoint.id(),
+  mock(jupiter().endpoint, jupiter().endpoint,
        {basp::message_type::server_handshake, 0, 0, basp::version,
         jupiter().id, none,
         jupiter().dummy_actor->id(), invalid_actor_id,
@@ -985,7 +998,7 @@ CAF_TEST(automatic_connection_udp) {
   check_node_in_tbl(mars());
   CAF_MESSAGE("simulate that an actor from jupiter "
               "sends a message to us via mars");
-  mock(dx, mars().endpoint.id(),
+  mock(dx, mars().endpoint,
        {basp::message_type::dispatch_message, 0, 0, 0,
         jupiter().id, this_node(),
         jupiter().dummy_actor->id(), self()->id(),
@@ -1023,7 +1036,7 @@ CAF_TEST(automatic_connection_udp) {
   CAF_MESSAGE("receive ConfigServ of jupiter");
   network::address_listing res;
   res[network::protocol::ipv4].emplace_back("jupiter");
-  mock(dx, mars().endpoint.id(),
+  mock(dx, mars().endpoint,
        {basp::message_type::dispatch_message, 0, 0, 0,
         this_node(), this_node(),
         invalid_actor_id, connection_helper_actor,
@@ -1046,7 +1059,7 @@ CAF_TEST(automatic_connection_udp) {
            invalid_actor_id, invalid_actor_id, std::string{});
   CAF_MESSAGE("Received client handshake.");
   // send handshake from jupiter
-  mock(jupiter().endpoint, jupiter().endpoint.id(),
+  mock(jupiter().endpoint, jupiter().endpoint,
        {basp::message_type::server_handshake, 0, 0, basp::version,
         jupiter().id, none,
         jupiter().dummy_actor->id(), invalid_actor_id},

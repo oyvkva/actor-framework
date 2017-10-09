@@ -1844,11 +1844,11 @@ std::string dgram_servant_impl::addr() const {
   return *x;
 }
 
-uint16_t dgram_servant_impl::port() const {
-  auto x = remote_port_of_fd(handler_ptr_->fd());
-  if (!x)
+uint16_t dgram_servant_impl::port(dgram_handle hdl) const {
+  auto itr = endpoints_.find(hdl);
+  if (itr == endpoints_.end())
     return 0;
-  return *x;
+  return network::port(itr->second);
 }
 
 uint16_t dgram_servant_impl::local_port() const {

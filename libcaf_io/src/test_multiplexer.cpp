@@ -357,18 +357,12 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       { // Try to get a connection handle of a pending connect.
         guard_type guard{mpx_->mx_};
         auto& pc = mpx_->pending_endpoints();
-        auto i = pc.find(ep);
+        auto i = pc.find(hdl().id());
         if (i == pc.end())
           return false;
         ch = i->second;
         pc.erase(i);
       }
-      //auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
-      //{ // lifetime scope of guard
-        //guard_type guard{mpx_->mx_};
-        //data_->servants[ch.id()] = servant;
-        //mpx_->local_port(ch) = data_->local_port;
-      //}
       mpx_->dgram_data_[ch] = data_;
       mpx_->servants(hdl())[ep] = ch;
       parent()->add_dgram_servant(this, ch);
@@ -380,9 +374,9 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     void ack_writes(bool enable) override {
       mpx_->ack_writes(hdl()) = enable;
     }
-    std::vector<char>& wr_buf(dgram_handle) override {
-      auto& buf = mpx_->output_buffer(hdl());
-      buf.first = hdl().id();
+    std::vector<char>& wr_buf(dgram_handle hdl) override {
+      auto& buf = mpx_->output_buffer(hdl);
+      buf.first = hdl.id();
       return buf.second;
     }
     std::vector<char>& rd_buf() override {
@@ -403,8 +397,8 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     std::string addr() const override {
       return "test";
     }
-    uint16_t port() const override {
-      return static_cast<uint16_t>(hdl().id());
+    uint16_t port(dgram_handle hdl) const override {
+      return static_cast<uint16_t>(hdl.id());
     }
     uint16_t local_port() const override {
       guard_type guard{mpx_->mx_};
@@ -726,9 +720,9 @@ void test_multiplexer::prepare_connection(accept_handle src,
   peer.provide_scribe(std::move(host), port, peer_hdl);
 }
 
-void test_multiplexer::add_pending_endpoint(int64_t ep, dgram_handle hdl) {
+void test_multiplexer::add_pending_endpoint(dgram_handle src, dgram_handle hdl) {
   CAF_ASSERT(std::this_thread::get_id() == tid_);
-  pending_endpoints_.emplace(ep, hdl);
+  pending_endpoints_.emplace(src.id(), hdl);
 }
 
 test_multiplexer::pending_connects_map& test_multiplexer::pending_connects() {

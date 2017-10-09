@@ -204,7 +204,7 @@ public:
                           uint16_t port, connection_handle peer_hdl);
 
   /// Stores `hdl` as a pending endpoint for `src`.
-  void add_pending_endpoint(int64_t ep, dgram_handle hdl);
+  void add_pending_endpoint(dgram_handle src, dgram_handle hdl);
 
   using pending_connects_map = std::unordered_multimap<accept_handle,
                                                        connection_handle>;

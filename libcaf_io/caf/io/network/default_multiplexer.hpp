@@ -1017,7 +1017,7 @@ public:
 
   std::string addr() const override;
 
-  uint16_t port() const override;
+  uint16_t port(dgram_handle hdl) const override;
 
   uint16_t local_port() const override;
 

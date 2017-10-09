@@ -123,6 +123,10 @@ typename Inspector::result_type inspect(Inspector& f, ip_endpoint& ep) {
 
 std::string to_string(const ip_endpoint& ep);
 
+std::string host(const ip_endpoint& ep);
+
+uint16_t port(const ip_endpoint& ep);
+
 // TODO: write inspector?
 
 } // namespace network

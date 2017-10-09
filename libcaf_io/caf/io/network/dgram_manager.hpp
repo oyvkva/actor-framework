@@ -46,6 +46,9 @@ public:
   /// @returns `true` if the manager accepts further enpoints,
   ///          otherwise `false`.
   virtual bool new_endpoint(std::vector<char>& buf) = 0;
+
+  /// Get the port of the underlying I/O device.
+  virtual uint16_t port(dgram_handle) const = 0;
 };
 
 } // namespace network

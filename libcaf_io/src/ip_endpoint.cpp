@@ -103,17 +103,18 @@ bool operator==(const ip_endpoint& lhs, const ip_endpoint& rhs) {
 }
 
 std::string to_string(const ip_endpoint& ep) {
-  uint16_t port = 0;
+  return host(ep) + ":" + std::to_string(port(ep));
+}
+
+std::string host(const ip_endpoint& ep) {
   char addr[INET6_ADDRSTRLEN];
   switch(ep.addr.ss_family) {
     case AF_INET:
-      port = ntohs(reinterpret_cast<const sockaddr_in*>(&ep.addr)->sin_port);
       inet_ntop(AF_INET,
                 &reinterpret_cast<const sockaddr_in*>(&ep.addr)->sin_addr,
                 addr, ep.len);
       break;
     case AF_INET6:
-      port = ntohs(reinterpret_cast<const sockaddr_in6*>(&ep.addr)->sin6_port);
       inet_ntop(AF_INET6,
                 &reinterpret_cast<const sockaddr_in6*>(&ep.addr)->sin6_addr,
                 addr, ep.len);
@@ -122,7 +123,23 @@ std::string to_string(const ip_endpoint& ep) {
       addr[0] = '\0';
       break;
   }
-  return std::string(addr) + ":" + std::to_string(port);
+  return std::string(addr);
+}
+
+uint16_t port(const ip_endpoint& ep) {
+  uint16_t port = 0;
+  switch(ep.addr.ss_family) {
+    case AF_INET:
+      port = ntohs(reinterpret_cast<const sockaddr_in*>(&ep.addr)->sin_port);
+      break;
+    case AF_INET6:
+      port = ntohs(reinterpret_cast<const sockaddr_in6*>(&ep.addr)->sin6_port);
+      break;
+    default:
+      // nop
+      break;
+  }
+  return port;
 }
 
 } // namespace network

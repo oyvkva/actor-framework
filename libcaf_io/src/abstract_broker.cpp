@@ -245,7 +245,7 @@ abstract_broker::add_udp_dgram_servant(uint16_t port, const char* in,
   auto eptr = backend().new_local_udp_endpoint(port, in, reuse_addr);
   if (eptr) {
     auto ptr = std::move(*eptr);
-    auto p = ptr->port();
+    auto p = ptr->port(ptr->hdl());
     return std::make_pair(add_servant(std::move(ptr)), p);
   }
   return std::move(eptr.error());
@@ -290,7 +290,7 @@ std::string abstract_broker::remote_addr(dgram_handle hdl) {
 
 uint16_t abstract_broker::remote_port(dgram_handle hdl) {
   auto i = dgram_servants_.find(hdl);
-  return i != dgram_servants_.end() ? i->second->port() : 0;
+  return i != dgram_servants_.end() ? i->second->port(hdl) : 0;
 }
 
 uint16_t abstract_broker::local_port(dgram_handle hdl) {
