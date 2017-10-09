@@ -302,7 +302,7 @@ test_multiplexer::new_remote_udp_endpoint(const std::string& host,
   { // lifetime scope of guard
     guard_type guard{mx_};
     auto data = dgram_data_[hdl];
-    data->servants[hdl.id()] = ptr;
+    data->servants[hdl.id()] = hdl;
     local_port(hdl) = data->local_port;
   }
   return ptr;
@@ -363,16 +363,16 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
         ch = i->second;
         pc.erase(i);
       }
-      auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
-      { // lifetime scope of guard
-        guard_type guard{mpx_->mx_};
-        data_->servants[ch.id()] = servant;
-        mpx_->local_port(ch) = data_->local_port;
-      }
-      mpx_->servants(hdl())[ep] = servant;
-      parent()->add_dgram_servant(servant);
+      //auto servant = mpx_->new_dgram_servant(ch, mpx_->local_port(hdl()));
+      //{ // lifetime scope of guard
+        //guard_type guard{mpx_->mx_};
+        //data_->servants[ch.id()] = servant;
+        //mpx_->local_port(ch) = data_->local_port;
+      //}
+      mpx_->dgram_data_[ch] = data_;
+      mpx_->servants(hdl())[ep] = ch;
+      parent()->add_dgram_servant(this, ch);
       return consume(mpx_, ch, buf);
-      abort();
     }
     void configure_datagram_size(size_t buf_size) override {
       mpx_->datagram_size(hdl()) = buf_size;
@@ -391,6 +391,7 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     }
     void stop_reading() override {
       mpx_->stopped_reading(hdl()) = true;
+      detach_handles();
       detach(mpx_, false);
     }
     void launch() override {
@@ -429,7 +430,10 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       }
     }
     void detach_handles() override {
-      // nop
+      for (auto& p : data_->servants) {
+        if (p.second != hdl())
+          parent()->erase(p.second);
+      }
     }
   private:
     test_multiplexer* mpx_;
@@ -829,7 +833,8 @@ bool test_multiplexer::try_read_data(connection_handle hdl) {
         sd.rd_buf.clear();
         auto xbuf_size = static_cast<ptrdiff_t>(sd.vn_buf.size());
         auto first = sd.vn_buf.begin();
-        auto last = (max_bytes < xbuf_size) ? first + max_bytes : sd.vn_buf.end();
+        auto last = (max_bytes < xbuf_size) ? first + max_bytes
+                                            : sd.vn_buf.end();
         sd.rd_buf.insert(sd.rd_buf.end(), first, last);
         sd.vn_buf.erase(first, last);
         if (!sd.ptr->consume(this, sd.rd_buf.data(), sd.rd_buf.size()))
@@ -903,7 +908,8 @@ bool test_multiplexer::read_data(connection_handle hdl) {
           sd.rd_buf.clear();
           auto xbuf_size = static_cast<ptrdiff_t>(sd.vn_buf.size());
           auto first = sd.vn_buf.begin();
-          auto last = (max_bytes < xbuf_size) ? first + max_bytes : sd.vn_buf.end();
+          auto last = (max_bytes < xbuf_size) ? first + max_bytes
+                                              : sd.vn_buf.end();
           sd.rd_buf.insert(sd.rd_buf.end(), first, last);
           sd.vn_buf.erase(first, last);
           if (!sd.ptr->consume(this, sd.rd_buf.data(), sd.rd_buf.size()))
@@ -921,23 +927,21 @@ bool test_multiplexer::read_data(dgram_handle hdl) {
   flush_runnables();
   if (passive_mode(hdl))
     return false;
-  auto dd = dgram_data_[hdl];
-  // CAF_ASSERT(dd.ptr != nullptr);
-  if (dd->ptr == nullptr || dd->ptr->parent() == nullptr
-      || !dd->ptr->parent()->getf(abstract_actor::is_initialized_flag))
+  auto data = dgram_data_[hdl];
+  if (data->ptr == nullptr || data->ptr->parent() == nullptr
+      || !data->ptr->parent()->getf(abstract_actor::is_initialized_flag))
     return false;
-  if (dd->vn_buf.back().second.empty())
+  if (data->vn_buf.back().second.empty())
     return false;
-  dd->rd_buf.second.clear();
-  std::swap(dd->rd_buf, dd->vn_buf.front());
-  dd->vn_buf.pop_front();
-  auto& delegate = dd->servants[dd->rd_buf.first];
-  // TODO: failure should shutdown all related servants
-  if (delegate == nullptr) {
-    if (!dd->ptr->new_endpoint(dd->rd_buf.second))
+  data->rd_buf.second.clear();
+  std::swap(data->rd_buf, data->vn_buf.front());
+  data->vn_buf.pop_front();
+  auto itr = data->servants.find(data->rd_buf.first);
+  if (itr == data->servants.end()) {
+    if (!data->ptr->new_endpoint(data->rd_buf.second))
       passive_mode(hdl) = true;
   } else {
-    if (!delegate->consume(this, hdl, dd->rd_buf.second))
+    if (!data->ptr->consume(this, itr->second, data->rd_buf.second))
       passive_mode(hdl) = true;
   }
   return true;

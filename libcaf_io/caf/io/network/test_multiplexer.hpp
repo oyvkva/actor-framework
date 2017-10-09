@@ -179,7 +179,7 @@ public:
 
   dgram_servant_ptr& impl_ptr(dgram_handle hdl);
 
-  using servants_map = std::unordered_map<int64_t, dgram_servant_ptr>;
+  using servants_map = std::unordered_map<int64_t, dgram_handle>;
 
   /// Returns a map with all servants related to the servant `hdl`.
   servants_map& servants(dgram_handle hdl);
