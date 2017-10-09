@@ -40,36 +40,6 @@ struct invalid_dgram_handle_t {
 constexpr invalid_dgram_handle_t invalid_dgram_handle
   = invalid_dgram_handle_t{};
 
-/*
-/// Generic type for identifying datagram sink.
-class dgram_handle : public handle<dgram_handle,
-                                   invalid_dgram_handle_t> {
-public:
-  friend class handle<dgram_handle, invalid_dgram_handle_t>;
-
-  using super = handle<dgram_handle, invalid_dgram_handle_t>;
-
-  dgram_handle() {
-    // nop
-  }
-
-  dgram_handle(const invalid_dgram_handle_t&) {
-    // nop
-  }
-
-  template <class Inspector>
-  friend typename Inspector::result_type inspect(Inspector& f,
-                                                 dgram_handle& x) {
-    return f(meta::type_name("dgram_handle"), x.id_);
-  }
-
-private:
-  inline dgram_handle(int64_t handle_id) : super(handle_id) {
-    // nop
-  }
-};
-*/
-
 namespace {
 
 constexpr int64_t invalid_id = -1;

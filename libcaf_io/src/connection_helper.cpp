@@ -45,7 +45,7 @@ behavior dgram_connection_broker(broker* self,
       auto eptr = mx.new_remote_udp_endpoint(addr, port);
       if (eptr) {
         auto hdl = (*eptr)->hdl();
-        self->add_dgram_servant(std::move(*eptr));
+        self->add_dgram_servant(std::move(*eptr), hdl);
         basp::instance::write_client_handshake(self->context(),
                                                self->wr_buf(hdl),
                                                none, this_node,

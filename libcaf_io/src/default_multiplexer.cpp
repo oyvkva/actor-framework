@@ -963,7 +963,7 @@ default_multiplexer::new_dgram_servant_for_endpoint(native_socket fd,
                                                     ip_endpoint& ep) {
   CAF_LOG_TRACE(CAF_ARG(ep));
   auto ds = new_dgram_servant(fd);
-  ds->add_endpoint(ep);
+  ds->add_endpoint(ep, ds->hdl().id());
   return ds;
 };
 
@@ -1236,8 +1236,8 @@ void dgram_handler::start(dgram_manager* mgr) {
 }
 
 void dgram_handler::activate(dgram_manager* mgr) {
-  if (!commander_) {
-    commander_.reset(mgr);
+  if (!reader_) {
+    reader_.reset(mgr);
     event_handler::activate();
     prepare_next_read();
   }
@@ -1257,19 +1257,12 @@ void dgram_handler::write(id_type id, const void* buf, size_t num_bytes) {
   );
 }
 
-void dgram_handler::flush(id_type id, ip_endpoint& ep,
-                          const manager_ptr& mgr) {
-//  std::cout << "[f] {" << id << "} for " << to_string(ep) << std::endl;
+void dgram_handler::flush(const manager_ptr& mgr) {
   CAF_ASSERT(mgr != nullptr);
   CAF_LOG_TRACE(CAF_ARG(wr_offline_buf_.size()));
   if (!wr_offline_buf_.empty() && !writing_) {
     backend().add(operation::write, fd(), this);
-    auto itr = from_id_.find(id);
-    if (itr == from_id_.end() || !itr->second->deputy) {
-      add_endpoint(id, ep, mgr);
-      // TODO: figure this out
-      throw std::runtime_error("Looks like this does actually happen!");
-    }
+    writer_ = mgr;
     writing_ = true;
     prepare_next_write();
   }
@@ -1279,12 +1272,11 @@ void dgram_handler::add_endpoint(id_type id, ip_endpoint& ep,
                                  const manager_ptr mgr) {
   auto itr = from_ep_.find(ep);
   if (itr == from_ep_.end()) {
-    auto data = make_counted<endpoint_data>(ep, mgr);
-    from_ep_[ep] = data;
-    from_id_[id] = data;
-  } else if (!itr->second->deputy) {
-    itr->second->deputy = mgr;
-    from_id_[id]->deputy = mgr;
+    from_ep_[ep] = id;
+    from_id_[id] = ep;
+    writer_ = mgr;
+  } else if (!writer_) {
+    writer_ = mgr;
   } else {
     CAF_LOG_ERROR("cannot assign a second servant to the enpoint "
                   << to_string(ep));
@@ -1297,7 +1289,7 @@ void dgram_handler::remove_endpoint(id_type id) {
   CAF_LOG_TRACE(CAF_ARG(id));
   auto itr = from_id_.find(id);
   if (itr != from_id_.end()) {
-    from_ep_.erase(itr->second->endpoint);
+    from_ep_.erase(itr->second);
     from_id_.erase(itr);
   }
 }
@@ -1310,11 +1302,8 @@ void dgram_handler::stop_reading() {
 
 void dgram_handler::removed_from_loop(operation op) {
   switch (op) {
-    case operation::read: commander_.reset(); break;
-    case operation::write:
-//      std::cout << "[rfl] IGNORED" << std::endl;
-//      TODO: hm?
-      break;
+    case operation::read: reader_.reset(); break;
+    case operation::write: writer_.reset(); break;
     case operation::propagate_error: break;
   };
 }
@@ -1339,12 +1328,6 @@ void dgram_handler::prepare_next_write() {
     wr_buf_.swap(wr_offline_buf_.front());
     wr_offline_buf_.pop_front();
   }
-}
-
-dgram_handler::endpoint_data::endpoint_data(ip_endpoint& ep,
-                                            manager_ptr ptr)
-  : endpoint(ep), deputy(ptr) {
-  // nop
 }
 
 class socket_guard {
@@ -1808,8 +1791,6 @@ dgram_servant_impl::dgram_servant_impl(std::shared_ptr<handler_type> ptr,
 }
 
 bool dgram_servant_impl::new_endpoint(std::vector<char>& buf) {
-//      std::cout << "[ne] {" << hdl().id() << "} encountered new endpoint: "
-//                << to_string(ep) << std::endl;
   CAF_LOG_TRACE("");
   if (detached())
      // we are already disconnected from the broker while the multiplexer
@@ -1819,10 +1800,9 @@ bool dgram_servant_impl::new_endpoint(std::vector<char>& buf) {
      return false;
   auto& dm = handler_ptr_->backend();
   auto id = dm.next_endpoint_id();
-  auto sptr = make_counted<dgram_servant_impl>(handler_ptr_, id);
-  sptr->add_endpoint(handler_ptr_->last_sender());
-  parent()->add_dgram_servant(sptr);
-  return sptr->consume(&dm, buf);
+  add_endpoint(handler_ptr_->last_sender(), id);
+  parent()->add_dgram_servant(this, dgram_handle::from_int(id));
+  return consume(&dm, dgram_handle::from_int(id), buf);
 }
 
 void dgram_servant_impl::configure_datagram_size(size_t buf_size) {
@@ -1837,10 +1817,8 @@ void dgram_servant_impl::ack_writes(bool enable) {
   handler_ptr_->ack_writes(enable);
 }
 
-std::vector<char>& dgram_servant_impl::wr_buf() {
-//      std::cout << "[wb] {" << hdl().id() << "} is getting a new job"
-//                << std::endl;
-  return handler_ptr_->wr_buf(hdl().id());
+std::vector<char>& dgram_servant_impl::wr_buf(dgram_handle hdl) {
+  return handler_ptr_->wr_buf(hdl.id());
 }
 
 std::vector<char>& dgram_servant_impl::rd_buf() {
@@ -1850,12 +1828,13 @@ std::vector<char>& dgram_servant_impl::rd_buf() {
 void dgram_servant_impl::stop_reading() {
   CAF_LOG_TRACE("");
   handler_ptr_->stop_reading();
+  detach_handles();
   detach(&handler_ptr_->backend(), false);
 }
 
 void dgram_servant_impl::flush() {
   CAF_LOG_TRACE("");
-  handler_ptr_->flush(hdl().id(), ep_, this);
+  handler_ptr_->flush(this);
 }
 
 std::string dgram_servant_impl::addr() const {
@@ -1879,9 +1858,9 @@ uint16_t dgram_servant_impl::local_port() const {
   return *x;
 }
 
-void dgram_servant_impl::add_endpoint(ip_endpoint& ep) {
-  ep_ = ep;
-  handler_ptr_->add_endpoint(hdl().id(), ep, this);
+void dgram_servant_impl::add_endpoint(ip_endpoint& ep, int64_t id) {
+  endpoints_[dgram_handle::from_int(id)] = ep;
+  handler_ptr_->add_endpoint(id, ep, this);
 }
 
 void dgram_servant_impl::remove_endpoint() {
@@ -1901,6 +1880,14 @@ void dgram_servant_impl::add_to_loop() {
 
 void dgram_servant_impl::remove_from_loop() {
   handler_ptr_->passivate();
+}
+
+
+void dgram_servant_impl::detach_handles() {
+  for (auto& p : endpoints_) {
+    if (p.first != hdl())
+      parent()->erase(p.first);
+  }
 }
 
 } // namespace network

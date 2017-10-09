@@ -784,7 +784,7 @@ public:
   /// member function of `mgr` in case of an error.
   /// @warning Must not be called outside the IO multiplexers event loop
   ///          once the stream has been started.
-  void flush(id_type id, ip_endpoint& ep, const manager_ptr& mgr);
+  void flush(const manager_ptr& mgr);
 
   /// Closes the read channel of the underlying socket and removes
   /// this handler from its parent.
@@ -813,24 +813,25 @@ protected:
         for (size_t i = 0; i < mcr; ++i) {
           if (!policy.read_datagram(rb, fd(), rd_buf_.data(), rd_buf_.size(),
                                     sender_)) {
-            commander_->io_failure(&backend(), operation::read);
+            reader_->io_failure(&backend(), operation::read);
             passivate();
             return;
           }
           if (rb > 0) {
             rd_buf_.resize(rb);
-            // TODO: sent as the new endpoint
             auto itr = from_ep_.find(sender_);
             bool consumed = false;
             if (itr == from_ep_.end()) {
-              consumed = commander_->new_endpoint(rd_buf_);
+              consumed = reader_->new_endpoint(rd_buf_);
             } else {
-              if (!itr->second->deputy) {
+              if (!reader_) {
                 std::cout << "Something went wrong, servant for '"
                           << to_string(sender_) << "' is invalid" << std::endl;
                 abort();
               }
-              consumed = itr->second->deputy->consume(&backend(), rd_buf_);
+              consumed = reader_->consume(&backend(),
+                                          dgram_handle::from_int(itr->second),
+                                          rd_buf_);
             }
             bytes_read_ = rb;
             prepare_next_read();
@@ -844,54 +845,44 @@ protected:
       }
       case io::network::operation::write: {
         size_t wb; // written bytes
-//        std::cout << "[he] looking for handler {" << wr_buf_.first
-//                  << "} to write " << wr_buf_.second.size() << " bytes"
-//                  << std::endl;
         auto itr = from_id_.find(wr_buf_.first);
         if (itr == from_id_.end()) {
-          // handle_error
+          // TODO: handle_error
           std::cout << "[he] unknown servant {" << wr_buf_.first << "}"
                     << std::endl;
-//          for  (auto& ep : from_id_)
-//            std::cout << " > {" << ep.first << "}  for "
-//                      << to_string(ep.second->endpoint) << std::endl;
           abort();
           return;
         }
-        auto& ctx = itr->second;
+        auto& id = itr->first;
+        auto& ep = itr->second;
         std::vector<char>& buf = wr_buf_.second;
         if (!policy.write_datagram(wb, fd(), buf.data(),
-                                   buf.size(), ctx->endpoint)) {
-          ctx->deputy->io_failure(&backend(), operation::write);
+                                   buf.size(), ep)) {
+          writer_->io_failure(&backend(), operation::write);
           backend().del(operation::write, fd(), this);
         } else if (wb > 0) {
           CAF_ASSERT(wb == wr_buf_.second.size());
-          if (ack_writes_)
-            ctx->deputy->datagram_sent(&backend(), wb);
+          if (ack_writes_) {
+            writer_->datagram_sent(&backend(), dgram_handle::from_int(id), wb);
+          }
           prepare_next_write();
         } else {
-          if (ctx->deputy)
-            ctx->deputy->io_failure(&backend(), operation::write);
+          if (writer_)
+            writer_->io_failure(&backend(), operation::write);
         }
         break;
       }
       case operation::propagate_error:
-        if (commander_)
-          commander_->io_failure(&backend(), operation::read);
-        for (auto& mngr : from_ep_)
-          mngr.second->deputy->io_failure(&backend(), operation::write);
+        if (reader_)
+          reader_->io_failure(&backend(), operation::read);
+        if (writer_)
+          writer_->io_failure(&backend(), operation::write);
         // backend will delete this handler anyway,
         // no need to call backend().del() here
     }
   }
 
 private:
-  struct endpoint_data : public ref_counted {
-    endpoint_data(ip_endpoint& ep, manager_ptr ptr);
-    ip_endpoint endpoint;
-    manager_ptr deputy;
-  };
-
   size_t max_consecutive_reads();
 
   void prepare_next_read();
@@ -902,10 +893,10 @@ private:
   size_t dgram_size_;
   buffer_type rd_buf_;
   size_t bytes_read_;
-  manager_ptr commander_;
+  manager_ptr reader_;
 
-  std::unordered_map<ip_endpoint, intrusive_ptr<endpoint_data>> from_ep_;
-  std::unordered_map<id_type, intrusive_ptr<endpoint_data>> from_id_;
+  std::unordered_map<ip_endpoint, id_type> from_ep_;
+  std::unordered_map<id_type, ip_endpoint> from_id_;
 
   // addr of last sender
   ip_endpoint sender_;
@@ -915,6 +906,7 @@ private:
   bool writing_;
   std::deque<job_type> wr_offline_buf_;
   job_type wr_buf_;
+  manager_ptr writer_;
 };
 
 /// A concrete dgram_handler with a technology-dependent policy.
@@ -1004,9 +996,10 @@ protected:
 /// Default datagram servant implementation
 class dgram_servant_impl : public dgram_servant {
   using handler_type = dgram_handler_impl<udp_policy>;
+  using id_type = int64_t;
 
 public:
-  dgram_servant_impl(std::shared_ptr<handler_type> ptr, int64_t id);
+  dgram_servant_impl(std::shared_ptr<handler_type> ptr, id_type id);
 
   bool new_endpoint(std::vector<char>& buf) override;
 
@@ -1014,7 +1007,7 @@ public:
 
   void ack_writes(bool enable) override;
 
-  std::vector<char>& wr_buf() override;
+  std::vector<char>& wr_buf(dgram_handle hdl) override;
 
   std::vector<char>& rd_buf() override;
 
@@ -1028,7 +1021,7 @@ public:
 
   uint16_t local_port() const override;
 
-  void add_endpoint(ip_endpoint& ep) override;
+  void add_endpoint(ip_endpoint& ep, int64_t id) override;
 
   void remove_endpoint() override;
 
@@ -1038,9 +1031,11 @@ public:
 
   void remove_from_loop() override;
 
+  void detach_handles() override;
+
 private:
   bool launched_;
-  ip_endpoint ep_;
+  std::unordered_map<dgram_handle,ip_endpoint> endpoints_;
   std::shared_ptr<handler_type> handler_ptr_;
 };
 

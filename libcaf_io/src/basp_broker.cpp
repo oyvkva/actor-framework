@@ -589,7 +589,7 @@ behavior basp_broker::make_behavior() {
     [=](new_datagram_msg& msg, dgram_servant_ptr ptr, uint16_t port) {
       CAF_LOG_TRACE(CAF_ARG(msg.handle));
       auto hdl = ptr->hdl();
-      add_dgram_servant(ptr);
+      add_dgram_servant(ptr, hdl);
       auto& ctx = state.ctx_udp[hdl];
       ctx.hdl = hdl;
       ctx.remote_port = port;
@@ -754,7 +754,8 @@ behavior basp_broker::make_behavior() {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port)
                     << CAF_ARG(whom) << CAF_ARG(sigs));
       CAF_ASSERT(ptr != nullptr);
-      add_dgram_servant(std::move(ptr));
+      auto hdl = ptr->hdl();
+      add_dgram_servant(std::move(ptr), hdl);
       if (whom)
         system().registry().put(whom->id(), whom);
       // TODO: should the actor be added if whom is not valid? (same for tcp)
@@ -765,7 +766,7 @@ behavior basp_broker::make_behavior() {
       CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(port));
       auto rp = make_response_promise();
       auto hdl = ptr->hdl();
-      add_dgram_servant(ptr);
+      add_dgram_servant(ptr, hdl);
       auto& ctx = state.ctx_udp[hdl];
       ctx.hdl = hdl;
       ctx.remote_port = port;

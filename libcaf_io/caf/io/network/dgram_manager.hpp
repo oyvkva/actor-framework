@@ -20,6 +20,7 @@
 #ifndef CAF_IO_NETWORK_DGRAM_MANAGER_HPP
 #define CAF_IO_NETWORK_DGRAM_MANAGER_HPP
 
+#include "caf/io/dgram_handle.hpp"
 #include "caf/io/network/manager.hpp"
 
 namespace caf {
@@ -34,10 +35,11 @@ public:
 
   /// Called by the underlying I/O device whenever it received data.
   /// @returns `true` if the manager accepts further reads, otherwise `false`.
-  virtual bool consume(execution_unit*, std::vector<char>& buf) = 0;
+  virtual bool consume(execution_unit*, dgram_handle hdl,
+                       std::vector<char>& buf) = 0;
 
   /// Called by the underlying I/O device whenever it sent data.
-  virtual void datagram_sent(execution_unit*, size_t) = 0;
+  virtual void datagram_sent(execution_unit*, dgram_handle hdl, size_t) = 0;
 
   /// Called by the underlying I/O device to indicate that a new remote
   /// endpoint has been detected, passing in the received datagram.

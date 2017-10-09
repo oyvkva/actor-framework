@@ -212,8 +212,11 @@ public:
   add_tcp_doorman(uint16_t port = 0, const char* in = nullptr,
                   bool reuse_addr = false);
 
-  /// Adds the unitialized `enpoint` instance `ptr` to this broker.
+  /// Adds a `dgram_servant` to this broker.
   void add_dgram_servant(dgram_servant_ptr ptr);
+
+  /// Adds a `dgram_servant` to this broker under `hdl`.
+  void add_dgram_servant(dgram_servant_ptr ptr, dgram_handle hdl);
 
   /// Creates and assigns a new `dgram_servant` from a given socket `fd`.
   dgram_handle add_dgram_servant(network::native_socket fd);
@@ -401,6 +404,16 @@ private:
     CAF_ASSERT(ptr->parent() == nullptr);
     ptr->set_parent(this);
     auto hdl = ptr->hdl();
+    launch_servant(ptr);
+    get_map(hdl).emplace(hdl, std::move(ptr));
+    return hdl;
+  }
+
+  template <class T, class U>
+  typename T::handle_type add_servant(intrusive_ptr<T>&& ptr, U hdl) {
+    CAF_ASSERT(ptr != nullptr);
+    CAF_ASSERT(ptr->parent() == nullptr);
+    ptr->set_parent(this);
     launch_servant(ptr);
     get_map(hdl).emplace(hdl, std::move(ptr));
     return hdl;

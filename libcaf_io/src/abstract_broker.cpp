@@ -132,7 +132,7 @@ std::vector<char>& abstract_broker::wr_buf(dgram_handle hdl) {
                   "dgram_scribe_handle");
     return dummy_wr_buf_;
   }
-  return x->wr_buf();
+  return x->wr_buf(hdl);
 }
 
 void abstract_broker::write(dgram_handle hdl, size_t bs,
@@ -207,6 +207,12 @@ abstract_broker::add_tcp_doorman(uint16_t port, const char* in,
 void abstract_broker::add_dgram_servant(dgram_servant_ptr ptr) {
   CAF_LOG_TRACE(CAF_ARG(ptr));
   add_servant(std::move(ptr));
+}
+
+void abstract_broker::add_dgram_servant(dgram_servant_ptr ptr,
+                                        dgram_handle hdl) {
+  CAF_LOG_TRACE(CAF_ARG(ptr) << CAF_ARG(hdl));
+  add_servant(std::move(ptr), hdl);
 }
 
 dgram_handle abstract_broker::add_dgram_servant(network::native_socket fd) {

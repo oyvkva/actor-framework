@@ -33,15 +33,12 @@ dgram_servant::~dgram_servant() {
 }
 
 message dgram_servant::detach_message() {
-  // TODO: Add endpoint ID to handle
+  // TODO: How do process all related handles?
   return make_message(dgram_servant_closed_msg{hdl()});
 }
 
-bool dgram_servant::consume(execution_unit* ctx, std::vector<char>& buf) {
-//  std::cout << "[c] {" << hdl().id() << "} consuming buffer of "
-//            << buf.size() << " bytes" << std::endl;
-  // TODO: add endpoint id to handle
-  // TODO: change signature to use vector<char> for passing the buffer!
+bool dgram_servant::consume(execution_unit* ctx, dgram_handle hdl,
+                            std::vector<char>& buf) {
   CAF_ASSERT(ctx != nullptr);
   CAF_LOG_TRACE(CAF_ARG(buf.size()));
   if (detached()) {
@@ -49,27 +46,12 @@ bool dgram_servant::consume(execution_unit* ctx, std::vector<char>& buf) {
     // did not yet remove the socket, this can happen if an I/O event causes
     // the broker to call close_all() while the pollset contained
     // further activities for the broker
-//    std::cout << "[c] but is alread detached" << std::endl;
     return false;
   }
   // keep a strong reference to our parent until we leave scope
   // to avoid UB when becoming detached during invocation
-  /*
   auto guard = parent_;
-  auto& buf = rd_buf();
-  CAF_ASSERT(buf.size() >= num);
-  // make sure size is correct, swap into message, and then call client
-  buf.resize(num);
-  auto& msg_buf = msg().buf;
-  msg_buf.swap(buf);
-  auto result = invoke_mailbox_element(ctx);
-  // swap buffer back to stream and implicitly flush wr_buf()
-  msg_buf.swap(buf);
-  flush();
-  return result;
-  */
-  auto guard = parent_;
-  msg().handle = hdl();
+  msg().handle = hdl;
   auto& msg_buf = msg().buf;
   msg_buf.swap(buf);
   auto result = invoke_mailbox_element(ctx);
@@ -79,8 +61,8 @@ bool dgram_servant::consume(execution_unit* ctx, std::vector<char>& buf) {
   return result;
 }
 
-void dgram_servant::datagram_sent(execution_unit* ctx, size_t written) {
-  // TODO: add endpoint id to handle
+void dgram_servant::datagram_sent(execution_unit* ctx, dgram_handle hdl,
+                                  size_t written) {
   CAF_LOG_TRACE(CAF_ARG(written));
   if (detached())
     return;
@@ -88,12 +70,11 @@ void dgram_servant::datagram_sent(execution_unit* ctx, size_t written) {
   using tmp_t = mailbox_element_vals<datagram_sent_msg>;
   tmp_t tmp{strong_actor_ptr{}, message_id::make(),
             mailbox_element::forwarding_stack{},
-            sent_t{hdl(), written}};
+            sent_t{hdl, written}};
   invoke_mailbox_element_impl(ctx, tmp);
 }
 
 void dgram_servant::io_failure(execution_unit* ctx, network::operation op) {
-//  std::cout << "[if] on operation " << to_string(op) << std::endl;
   CAF_LOG_TRACE(CAF_ARG(hdl()) << CAF_ARG(op));
   // keep compiler happy when compiling w/o logging
   static_cast<void>(op);

@@ -371,7 +371,7 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
       }
       mpx_->servants(hdl())[ep] = servant;
       parent()->add_dgram_servant(servant);
-      return servant->consume(mpx_, buf);
+      return consume(mpx_, ch, buf);
       abort();
     }
     void configure_datagram_size(size_t buf_size) override {
@@ -380,7 +380,7 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     void ack_writes(bool enable) override {
       mpx_->ack_writes(hdl()) = enable;
     }
-    std::vector<char>& wr_buf() override {
+    std::vector<char>& wr_buf(dgram_handle) override {
       auto& buf = mpx_->output_buffer(hdl());
       buf.first = hdl().id();
       return buf.second;
@@ -415,7 +415,7 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
     void remove_from_loop() override {
       mpx_->passive_mode(hdl()) = true;
     }
-    void add_endpoint(ip_endpoint&) override {
+    void add_endpoint(ip_endpoint&, int64_t) override {
       std::cerr << "dgram_servant impl::add_endpoint called with ip_endpoint"
                 << std::endl;
       abort();
@@ -427,6 +427,9 @@ test_multiplexer::new_dgram_servant_with_data(dgram_handle hdl,
         if (itr != data_->servants.end())
           data_->servants.erase(itr);
       }
+    }
+    void detach_handles() override {
+      // nop
     }
   private:
     test_multiplexer* mpx_;
@@ -934,7 +937,7 @@ bool test_multiplexer::read_data(dgram_handle hdl) {
     if (!dd->ptr->new_endpoint(dd->rd_buf.second))
       passive_mode(hdl) = true;
   } else {
-    if (!delegate->consume(this, dd->rd_buf.second))
+    if (!delegate->consume(this, hdl, dd->rd_buf.second))
       passive_mode(hdl) = true;
   }
   return true;

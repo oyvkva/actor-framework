@@ -51,7 +51,7 @@ public:
   virtual void ack_writes(bool enable) = 0;
 
   /// Returns the current output buffer.
-  virtual std::vector<char>& wr_buf() = 0;
+  virtual std::vector<char>& wr_buf(dgram_handle) = 0;
 
   /// Returns the current input buffer.
   virtual std::vector<char>& rd_buf() = 0;
@@ -65,15 +65,18 @@ public:
 
   /// Adds a new remote endpoint identified by the `ip_endpoint` to
   /// the related manager.
-  virtual void add_endpoint(network::ip_endpoint& ep) = 0;
+  virtual void add_endpoint(network::ip_endpoint& ep, int64_t id) = 0;
 
   virtual void remove_endpoint() = 0;
 
   void io_failure(execution_unit* ctx, network::operation op) override;
 
-  bool consume(execution_unit*, std::vector<char>& buf) override;
+  bool consume(execution_unit*, dgram_handle hdl,
+               std::vector<char>& buf) override;
 
-  void datagram_sent(execution_unit*, size_t) override;
+  void datagram_sent(execution_unit*, dgram_handle hdl, size_t) override;
+
+  virtual void detach_handles() = 0;
 
   using dgram_servant_base::new_endpoint;
 
